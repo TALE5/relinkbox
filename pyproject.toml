@@ -13,6 +13,9 @@ dependencies = [
     "pyrekordbox>=0.4.0,<0.5",
 ]
 
+[project.optional-dependencies]
+build = ["pyinstaller>=6.16"]
+
 [project.scripts]
 relinkbox = "relinkbox.app:main"
 

@@ -42,15 +42,3 @@ python -m venv venv
 python -m pip install -e .
 python -m relinkbox
 ```
-
-## Git in one sentence
-
-Git is a history of your files. GitHub is a website that stores that history so other people (and you, on another computer) can get the project.
-
-Typical loop after you change something:
-
-```powershell
-git add .
-git commit -m "Short description of what changed"
-git push
-```

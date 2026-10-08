@@ -1,8 +1,6 @@
-# Cue Relinker
+# Relinkbox
 
 A small desktop app that relinks Rekordbox 6 library tracks to music files on disk after you move folders, change drives, or rename files.
-
-This is a **relinker-only** release. Cuepack / cue-manager features from the old project are not included.
 
 Developed and tested on **Python 3.14**. Should also work on 3.10–3.13.
 
@@ -29,7 +27,7 @@ python -m pip install -e .
 3. Start the app:
 
 ```powershell
-python -m cue_relinker
+python -m relinkbox
 ```
 
 Or double-click `RUN.bat` after the venv exists.
@@ -37,12 +35,12 @@ Or double-click `RUN.bat` after the venv exists.
 ## Clone from GitHub
 
 ```powershell
-git clone https://github.com/TALE5/cue-relinker.git
-cd cue-relinker
+git clone https://github.com/TALE5/relinkbox.git
+cd relinkbox
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 python -m pip install -e .
-python -m cue_relinker
+python -m relinkbox
 ```
 
 ## Git in one sentence

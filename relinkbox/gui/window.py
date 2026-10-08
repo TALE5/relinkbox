@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from cue_relinker.gui.workers import (
+from relinkbox.gui.workers import (
     RelinkWorker,
     UntrackedFilesWorker,
     UpdateDisplayFilenamesWorker,
@@ -28,7 +28,7 @@ from cue_relinker.gui.workers import (
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Cue Relinker")
+        self.setWindowTitle("Relinkbox")
         self.setMinimumWidth(800)
         self.setMinimumHeight(520)
 

@@ -1,6 +1,6 @@
 from PySide6.QtCore import QObject, Signal
 
-from cue_relinker.relink import (
+from relinkbox.relink import (
     find_untracked_files,
     relink_tracks,
     update_display_filenames,

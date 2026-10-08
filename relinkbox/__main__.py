@@ -1,4 +1,4 @@
-from cue_relinker.app import main
+from relinkbox.app import main
 
 if __name__ == "__main__":
     main()

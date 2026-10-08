@@ -37,7 +37,7 @@ Or double-click `RUN.bat` after the venv exists.
 ## Clone from GitHub
 
 ```powershell
-git clone https://github.com/YOUR_USER/cue-relinker.git
+git clone https://github.com/TALE5/cue-relinker.git
 cd cue-relinker
 python -m venv venv
 .\venv\Scripts\Activate.ps1

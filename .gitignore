@@ -1,0 +1,20 @@
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.idea/
+.vscode/
+.env
+*.db
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Old cuepack-era code and local test data — not part of this release
+legacy/
+cuepack_files/
+testfiles/
+data/

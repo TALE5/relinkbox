@@ -1,6 +1,12 @@
+# *Build is currently broken, working on a fix*
+
 # Relinkbox
 
 A small desktop app that relinks Rekordbox 6 library tracks to music files on disk after you move folders, change drives, or rename files.
+
+I made this with almost zero coding experience after deciding manually relinking songs one by one by the thousands wasn't on the table.
+Pioneer has yet to develop a solution with actual functionality, so i spent under a day creating a better solution and have since experimented a bit.
+This build is skinned down with the core functionality intact*.
 
 ## Download
 
@@ -12,16 +18,34 @@ Pick one from the [latest release](https://github.com/TALE5/relinkbox/releases/l
 What you need either way:
 
 - 64-bit Windows 10 or 11
-- Rekordbox 6 closed before you run Relinkbox
+- Rekordbox closed before you run Relinkbox
 
-The app writes to the same database Rekordbox uses. It makes a timestamped backup first. Keep that backup.
+The app writes to the same database Rekordbox uses. It makes a timestamped backup of the .db *first* in the same folder. Keep that backup.
 
 ## What it does
 
-- Relink tracks in `master.db` to files in a music folder
+- Easily track and Relink tracks in `master.db` to files in a music folder using fuzzy matching
 - Find music files that are not in the Rekordbox library
 - Fix displayed filenames without changing paths
 - Create a timestamped backup of the database before you change it
+
+## How it works
+
+- The tool uses fuzzy matching to relink tracks (in bulk) that Rekordbox cannot.
+- Variables are set, and i aim to make them adjustable by the user.
+- Length needs to be a 100% match.
+
+## Why would you need it?
+
+- Rekordbox's database stores its links to your local files in an encrypted .db
+- The link is path based, meaning the file name is the only identifier.
+- If the file name is changed what so ever, the path will be broken and thus the link disappears.
+- Rekordbox's own relocation feature only allows you to either manually link files one by one, or change/search in another location (which requires file names to be identical to the .db path entry)
+
+## "Why would you even need this?"
+
+- I bulk rename my music, and at one point i renamed around 10 000 tracks only to realize that this would break most links i had in Rekordbox.
+- The only available alternative was to relink songs 1 by 1 due to the limited nature of Rekordbox's relocator.
 
 ## Build the exe and the zip
 

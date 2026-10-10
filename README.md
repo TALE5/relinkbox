@@ -16,7 +16,7 @@ I made this with almost zero coding experience after deciding that manually reli
 
 It has tests, makes a backup before every change, and has been thoroughly tested on a real 14,000-track library, but it is a hobby project and comes with no warranty. Keep your backups.
 
-## **[Watch the 2.5 minute demo](https://youtu.be/tsQJ6_JFg4E)**
+### **[Watch the 2.5 minute demo](https://youtu.be/tsQJ6_JFg4E)**
 [![Watch the 2.5 minute demo](https://img.youtube.com/vi/tsQJ6_JFg4E/hqdefault.jpg)](https://youtu.be/tsQJ6_JFg4E)
 
 ## Download

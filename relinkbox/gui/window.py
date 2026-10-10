@@ -1,7 +1,7 @@
 import os
 import shutil
 
-from PySide6.QtCore import QSettings, Qt, QThread, QTimer, QUrl
+from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -21,9 +21,10 @@ from PySide6.QtWidgets import (
 
 from relinkbox import __version__
 from relinkbox.backup import backups_root, list_backups, restore_backup
+from relinkbox.gui.cue_manager import CueManagerWindow
 from relinkbox.gui.dialogs import FolderMovedDialog, RestoreDialog
 from relinkbox.gui.preview import PreviewDialog
-from relinkbox.gui.workers import Worker
+from relinkbox.gui.workers import TaskRunner
 from relinkbox.logs import log_dir
 from relinkbox.matching import suggest_moved_prefix
 from relinkbox.rekordbox import find_default_database, is_rekordbox_running
@@ -53,10 +54,9 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("Relinkbox", "Relinkbox")
 
         self.db_path = None
-        self.thread = None
-        self.worker = None
-        self._on_done = None
         self.last_backup = None
+        self.cue_window = None
+        self.tasks = TaskRunner(self, self._set_busy, self._on_progress, self._failed)
 
         root = QWidget()
         layout = QVBoxLayout(root)
@@ -123,12 +123,18 @@ class MainWindow(QMainWindow):
         self.display_button = QPushButton("Fix display names")
         self.display_button.setToolTip("Makes the File Name column match the actual file. Paths are not changed.")
         self.display_button.clicked.connect(self.update_display_names)
+        self.cues_button = QPushButton("Check cue points...")
+        self.cues_button.setToolTip(
+            "Find cue points that sit off the beat grid, show them on the waveform, and snap them back."
+        )
+        self.cues_button.clicked.connect(self.open_cue_manager)
         row1 = QHBoxLayout()
         row1.addWidget(self.relink_button, 2)
         row1.addWidget(self.moved_button, 1)
         row2 = QHBoxLayout()
         row2.addWidget(self.untracked_button)
         row2.addWidget(self.display_button)
+        row2.addWidget(self.cues_button)
         actions.addLayout(row1)
         actions.addLayout(row2)
         layout.addWidget(actions_box)
@@ -162,6 +168,7 @@ class MainWindow(QMainWindow):
             self.moved_button,
             self.untracked_button,
             self.display_button,
+            self.cues_button,
         ]
 
         self._load_settings()
@@ -204,7 +211,7 @@ class MainWindow(QMainWindow):
         self.rekordbox_banner.setVisible(is_rekordbox_running())
 
     def closeEvent(self, event):
-        if self.thread and self.thread.isRunning():
+        if self.tasks.busy:
             QMessageBox.information(self, "Still working", "Please wait for the current task to finish.")
             event.ignore()
             return
@@ -221,42 +228,30 @@ class MainWindow(QMainWindow):
         self.status_label.setText(text)
 
     def _run(self, fn, args, on_done, busy_text):
-        self._set_busy(True, busy_text)
-        self._on_done = on_done
-        self.thread = QThread(self)
-        self.worker = Worker(fn, *args)
-        self.worker.moveToThread(self.thread)
-        self.thread.started.connect(self.worker.run)
-        self.worker.progress.connect(self._on_progress)
-        self.worker.finished.connect(self._finish)
-        self.worker.failed.connect(self._failed)
-        self.worker.finished.connect(self.thread.quit)
-        self.worker.failed.connect(self.thread.quit)
-        self.thread.finished.connect(self.worker.deleteLater)
-        self.thread.finished.connect(self.thread.deleteLater)
-        self.thread.start()
+        self.tasks.run(fn, args, on_done, busy_text)
 
     def _on_progress(self, percent, text):
         self.progress_bar.setValue(percent)
         if text:
             self.status_label.setText(text)
 
-    def _finish(self, result):
-        self._set_busy(False)
-        self.thread = None
-        self.worker = None
-        self._on_done(result)
-
     def _failed(self, message):
-        self._set_busy(False)
-        self.thread = None
-        self.worker = None
         self.status_label.setText("Something went wrong.")
         QMessageBox.critical(
             self,
             "Something went wrong",
             f"{message}\n\nNothing was saved to your library.\n\nDetails are in the log: {log_dir()}",
         )
+
+    def open_cue_manager(self):
+        if not self._require(folders=False):
+            return
+        if self.cue_window is None:
+            self.cue_window = CueManagerWindow(self.db_path, self)
+        self.cue_window.db_path = self.db_path
+        self.cue_window.show()
+        self.cue_window.raise_()
+        self.cue_window.activateWindow()
 
     def _require(self, folders=True):
         if not self.db_path:

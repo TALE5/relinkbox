@@ -7,8 +7,10 @@ from relinkbox.matching import build_folder_move_plan, build_plan, split_tracks
 from relinkbox.rekordbox import (
     close_database,
     ensure_rekordbox_closed,
+    file_type_for,
     is_local_file_path,
     load_tracks,
+    lost_tag_types,
     open_database,
     read_anlz_files,
 )
@@ -131,6 +133,16 @@ def apply_relinks(db_path, changes, progress=None):
                 anlz_files = {}
                 result.warnings.append(f"{change.track.label}: could not read analysis files ({e}).")
             for anlz_path, anlz in anlz_files.items():
+                try:
+                    lost = lost_tag_types(anlz_path, anlz)
+                except OSError as e:
+                    lost = [f"unreadable: {e}"]
+                if lost:
+                    result.warnings.append(
+                        f"{change.track.label}: analysis file {os.path.basename(anlz_path)} was left unchanged "
+                        f"because it has sections Relinkbox can't rewrite ({', '.join(lost)})."
+                    )
+                    continue
                 backup.add_anlz(share, anlz_path)
                 anlz.set_path(new_path)
                 pending_anlz.append((change.track, anlz_path, anlz))
@@ -142,6 +154,11 @@ def apply_relinks(db_path, changes, progress=None):
             new_name = new_path.rsplit("/", 1)[-1]
             if content.FileNameL != new_name:
                 content.FileNameL = new_name
+            if os.path.splitext(old_path)[1].lower() != os.path.splitext(new_path)[1].lower():
+                file_type = file_type_for(new_path)
+                if file_type is not None and content.FileType != file_type:
+                    content.FileType = file_type
+            content.FileSize = os.path.getsize(change.new_path)
             change.old_path = old_path
             change.new_path = new_path
             result.applied.append(change)

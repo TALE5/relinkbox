@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pyrekordbox import Rekordbox6Database
 from pyrekordbox.utils import get_rekordbox_pid
 
+from relinkbox.analysis import iter_sections
+
 
 class RekordboxRunningError(RuntimeError):
     def __init__(self):
@@ -70,6 +72,33 @@ def read_anlz_files(db, content_id):
         return db.read_anlz_files(content_id)
     except FileNotFoundError:
         return {}
+
+
+def raw_tag_types(path):
+    """Four-character codes of every section in an analysis file, read straight from the bytes."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    return [code for code, _start, _len_header, _len_tag in iter_sections(data)]
+
+
+def lost_tag_types(path, anlz):
+    """Section types pyrekordbox did not parse, so saving the file would drop them."""
+    remaining = list(anlz.tag_types)
+    lost = []
+    for tag_type in raw_tag_types(path):
+        if tag_type in remaining:
+            remaining.remove(tag_type)
+        else:
+            lost.append(tag_type)
+    return lost
+
+
+# Rekordbox's djmdContent.FileType codes.
+FILE_TYPES = {".mp3": 1, ".m4a": 4, ".aac": 4, ".flac": 5, ".wav": 11, ".aif": 12, ".aiff": 12}
+
+
+def file_type_for(path):
+    return FILE_TYPES.get(os.path.splitext(path)[1].lower())
 
 
 def is_local_file_path(path):

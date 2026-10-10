@@ -13,6 +13,7 @@ hiddenimports = [
     "sqlcipher3",
     "sqlcipher3.dbapi2",
     "sqlalchemy.dialects.sqlite.pysqlcipher",
+    "PySide6.QtMultimedia",
 ]
 
 # The app only uses Qt Widgets. Skip the large Qt modules PySide6 ships with.
@@ -35,8 +36,6 @@ excludes = [
     "PySide6.Qt3DExtras",
     "PySide6.QtCharts",
     "PySide6.QtDataVisualization",
-    "PySide6.QtMultimedia",
-    "PySide6.QtMultimediaWidgets",
     "PySide6.QtBluetooth",
     "PySide6.QtNfc",
     "PySide6.QtPositioning",

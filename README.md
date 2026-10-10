@@ -33,6 +33,7 @@ I bulk rename my music, and at one point I renamed around 10,000 tracks before r
 - **A folder or drive moved.** When `E:\Music` became `F:\Music`, or a whole folder moved, this relinks exactly by keeping each track's subfolders and filename.
 - **Find files not in Rekordbox.** Save them as an `.m3u8` playlist you can import into Rekordbox, save a plain list, or copy them somewhere.
 - **Fix display names.** Makes the File Name column match the actual file without changing paths.
+- **Check cue points.** Finds tracks whose cues sit off the beat grid by the same amount, shows them on the waveform, and can snap them back. A backup is made first.
 
 ## How it keeps your library safe
 
@@ -63,9 +64,25 @@ A few rules apply on top of that:
 - **Several candidates means you choose.** If two or more files fit about equally well, the track is marked "pick a file" instead of guessing. A file in a folder with the same name as the old one wins a tie.
 - **Changed numbers stay Low.** If a number in the old name is missing from the new one ("v1" became "v2", "Part 1" became "Part 2"), it could be a different version, so it is never ticked automatically.
 - **WAV and AIFF need similar names.** Uncompressed files of the same length have the same size, so for those, an identical size only counts if the names are at least 60% similar.
-- **Why size and not track length?** Relinkbox doesn't decode audio. File size is exact and free to read, but Rekordbox doesn't update it when you edit tags or artwork, so small differences are expected. When the size differs by 5% or more, the file may be a different encode or version, and Relinkbox tells you to check the cue points.
+- **Why size and not track length?** File size comes free with the folder scan and is exact to the byte. Track length would mean opening every file, and Rekordbox only stores it to the second, so it can't tell tracks apart as well. Size has one catch: Rekordbox doesn't update it when you edit tags or artwork, so small differences are expected. When the size differs by 5% or more, the file may be a different encode or version, and Relinkbox tells you to check the cue points.
 
 Folders that can't be read are skipped and logged. Streaming tracks (SoundCloud, Beatport and so on) are left alone.
+
+## Cue points
+
+**Check cue points...** opens a separate window. It only reads the local analysis files Rekordbox already uses on this PC (the beat grid and waveform). USB exports are not touched. Cue changes are written only to the database.
+
+For each track with cues it:
+
+1. Measures how far each cue sits from the nearest beat.
+2. Looks for a **shared offset** of at least 3 cues, within 3 ms of each other, that does not drift along the track.
+3. Names the cause when it can. Re-encoding FLAC to MP3 often leaves cues early by 2257 samples (51 ms at 44.1 kHz, 47 ms at 48 kHz). That known offset is accepted at any BPM.
+4. Checks the waveform to see whether the drum hits line up with the grid or with the cues.
+5. Leaves cues that do not share the offset alone (those were probably placed off the grid on purpose).
+
+Tracks marked **Cues off grid** are ticked for you. You can play the track, click the waveform, and press a cue button. If the picture is unclear, mark **The cues are right** or **The grid is right** before snapping. **Snap selected** moves the matching cues onto the beat (and the loop end by the same amount), after a backup. VBR MP3 cues that store a byte offset are left alone.
+
+A shift with no known cause is only offered automatically when it is under 80 ms and under a quarter of a beat at that track's tempo. Larger or mixed offsets stay in **Check manually**.
 
 ## Build the exe and the zip
 

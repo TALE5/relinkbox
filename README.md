@@ -5,13 +5,17 @@
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-FF910F.svg)](LICENSE)
 
-A Windows desktop app that puts a Rekordbox 6 or 7 library back together after the music on disk has moved. Rekordbox stores each track’s full file path in an encrypted database (`master.db`). Rename a file, move a folder, or change a drive letter, and that path is the only thing that breaks. Cue points, loops, beat grids, playlists, and history stay on the track, because they belong to the track, not to the path.
+A Windows desktop app that puts a Rekordbox 6 or 7 library back together after the music on disk has moved. 
 
-Relinkbox finds the file again, or points a whole folder at its new location, and writes the new path back. It can also fix the file name Rekordbox still shows after a rename, list music files the library has never seen, and snap cue points that all sit the same distance off the beat grid.
+Rekordbox stores each track’s full file path in an encrypted database (`master.db`). Rename a file (or thousands, like i did), move a folder, or change a drive letter, and that path is the only thing that breaks. Cue points, loops, beat grids, playlists, and history stay on the track, because they belong to the track, not to the path. Good luck auto-relocating with the built-in tool, and spending literal days manually selecting files one by one wasn't on my to-do list, so i created this instead :)
 
-I made this with almost zero coding experience after deciding that manually relinking songs one by one, by the thousands, wasn't on the table. Pioneer has yet to build a solution that actually works for this, so I spent under a day making a better one and have kept improving it since.
+Relinkbox finds the file again, or points a whole folder at its new location, and writes the new path back. It can also automatically bulk rename/update-track-names within rekordbox based on the actual artist - title; list music files the library has never seen, and snap cue points on 1 or 10000 that could've drifted from several reasons, like re-encoding from FLAC to mp3 (which i also did, hence this module)
 
-> **Heads-up:** Relinkbox was built with a lot of help from AI coding tools. It has tests, makes a backup before every change, and has been tried on a real 14,000-track library, but it is a hobby project and comes with no warranty. Keep your backups.
+I made this with almost zero coding experience after deciding that manually relinking songs one by one, by the thousands, wasn't on the table. Pioneer has yet to build a solution that actually works for this, so I spent under a day making an actual functioning one and have kept improving it since.
+
+> **Heads-up:** Relinkbox was built with good vibes a lot of help from AI coding tools. Although I have decades of technical knowledge tinkering with software and hardware and employ common sense, it might contain a bug or two. I'll do my best to take care of whatever arises as soon as i can. My highest priority is the safety of your data, as I am heavily reliant on my own files and databases being intact. 
+
+It has tests, makes a backup before every change, and has been thoroughly tested on a real 14,000-track library, but it is a hobby project and comes with no warranty. Keep your backups.
 
 ## Download
 
@@ -24,15 +28,15 @@ What you need either way:
 
 - 64-bit Windows 10 or 11
 - Rekordbox 6 or 7 (tested with 7.2)
-- Rekordbox closed before you save changes. Scanning works while it is open.
+- Rekordbox closed before you save changes. Scanning/all read operations works while rekordbox is open.
 
 Until you choose one, Relinkbox looks for `master.db` in `%APPDATA%\Pioneer\rekordbox`. If yours lives somewhere else, use **Choose database...**. The database and the music folders you add are remembered the next time you open the app. **Open folder** jumps to the Rekordbox folder or to the backups folder next to it.
 
 ## Why the links break
 
-Rekordbox’s own relocate feature only lets you relink tracks one by one, or search another folder for a file with exactly the same name. There is no way to say “this whole folder is now on another drive,” and no way to find a file whose name changed.
+Rekordbox’s own relocate feature only lets you relink tracks one by one, or "auto relocate" searches your chosen foldeer for a file with an identical filename to the one stored in the database, **nothing else**. If you've tried tools like OneTagger, you'll know exactly what I'm talking about. Mass renaming thousands of files only to realise your rekordbox library is broken beyond belief without any tool to fix it. 
 
-I bulk rename my music, and at one point I renamed around 10,000 tracks before realizing that this broke most of my links in Rekordbox. The only alternative was relinking them one at a time.
+I like coherency in my file system, and with that i want to keep a specific file naming system for my music. Once i learnt about tools like OneTagger i already had thousands of files that dearly needed a metadata fixup.
 
 ## What you can do
 

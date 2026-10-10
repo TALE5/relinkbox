@@ -2,19 +2,32 @@
 #   release\Relinkbox.exe  — one file
 #   release\Relinkbox.zip  — unzip, then run Relinkbox.exe inside the folder
 $ErrorActionPreference = "Stop"
-# PyInstaller writes warnings to stderr. Do not treat that as a failed command.
-if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
-    $PSNativeCommandUseErrorActionPreference = $false
-}
 Set-Location $PSScriptRoot
+
+# pip and PyInstaller log normal progress to stderr. Windows PowerShell 5.1 turns that into
+# errors when output is redirected, so judge native commands by their exit code only.
+function Invoke-Native {
+    param([string]$Exe, [string[]]$Arguments)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Exe @Arguments 2>&1 | ForEach-Object { "$_" }
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($code -ne 0) {
+        Write-Host "Command failed with exit code ${code}: $Exe $($Arguments -join ' ')" -ForegroundColor Red
+        exit $code
+    }
+}
 
 $python = Join-Path $PSScriptRoot "venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {
     Write-Error "Create the venv first. See README.md, Develop from source."
 }
 
-& $python -m pip install "pyinstaller>=6.16"
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Invoke-Native $python @("-m", "pip", "install", "pyinstaller>=6.16")
 
 $release = Join-Path $PSScriptRoot "release"
 New-Item -ItemType Directory -Force -Path $release | Out-Null
@@ -30,8 +43,7 @@ function Build-Relinkbox {
         $dist = "dist\onedir"
         $work = "build\onedir"
     }
-    & $python -m PyInstaller --noconfirm --clean --distpath $dist --workpath $work ".\relinkbox.spec"
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Invoke-Native $python @("-m", "PyInstaller", "--noconfirm", "--clean", "--distpath", $dist, "--workpath", $work, ".\relinkbox.spec")
 }
 
 function New-RelinkboxZip {

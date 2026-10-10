@@ -1,9 +1,8 @@
-<p align="left">
-<img src="relinkbox_brand_assets/png/relinkbox-wordmark-transparent.png" alt="Relinkbox" height="100">
+![Relinkbox](relinkbox_brand_assets/png/relinkbox-wordmark-transparent.png)
 
-</p>
 
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-FF910F.svg)](LICENSE)
+
+![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-FF910F.svg)
 
 A Windows desktop app that puts a Rekordbox 6 or 7 library back together after the music on disk has moved. 
 
@@ -16,6 +15,9 @@ I made this with almost zero coding experience after deciding that manually reli
 > **Heads-up:** Relinkbox was built with good vibes a lot of help from AI coding tools. Although I have decades of technical knowledge tinkering with software and hardware and employ common sense, it might contain a bug or two. I'll do my best to take care of whatever arises as soon as i can. My highest priority is the safety of your data, as I am heavily reliant on my own files and databases being intact. 
 
 It has tests, makes a backup before every change, and has been thoroughly tested on a real 14,000-track library, but it is a hobby project and comes with no warranty. Keep your backups.
+
+## **[Watch the 2.5 minute demo](https://youtu.be/tsQJ6_JFg4E)**
+[![Watch the 2.5 minute demo](https://img.youtube.com/vi/tsQJ6_JFg4E/hqdefault.jpg)](https://youtu.be/tsQJ6_JFg4E)
 
 ## Download
 
@@ -39,13 +41,18 @@ Rekordbox’s own relocate feature only lets you relink tracks one by one, or "a
 I like coherency in my file system, and with that i want to keep a specific file naming system for my music. Once i learnt about tools like OneTagger i already had thousands of files that dearly needed a metadata fixup.
 
 ## What you can do
-<img width="823" height="960" alt="image" src="https://github.com/user-attachments/assets/67dac0af-c481-486a-b4e6-dccb39f2fdc9" />
+
+![Relinkbox main window](docs/relink.gif)
 
 All four jobs on the main window only look until you confirm. A yellow banner appears while Rekordbox is running. Saving is refused until it is fully closed.
 
 ---
+
+
+
 ### Scan for missing tracks
-<img width="1350" height="652" alt="image" src="https://github.com/user-attachments/assets/e110c156-5e75-45bb-8fbc-159b86fc4f05" />
+
+![image](https://github.com/user-attachments/assets/e110c156-5e75-45bb-8fbc-159b86fc4f05)
 
 Looks through the music folders you added and proposes a file for every track whose path no longer exists. Tracks that already point at a real file are left alone. Streaming and cloud entries (SoundCloud, Beatport, and anything else stored as a link rather than a drive path) are skipped.
 
@@ -57,14 +64,22 @@ A review window then lists:
 From that window you can export the full report or just the missing tracks as CSV (UTF-8, so Excel keeps accented names). Confirming asks once more, and tells you if any of the ticked rows are low confidence. A backup is made, the changes are written, and Relinkbox re-opens the database to check that each new path is actually there.
 
 ---
+
+
+
 ### A whole folder or drive letter changed
-<img width="624" height="242" alt="image" src="https://github.com/user-attachments/assets/fa6af211-c054-4fd9-b1e7-df32444f376a" />
+
+![image](https://github.com/user-attachments/assets/fa6af211-c054-4fd9-b1e7-df32444f376a)
 
 Use this when you already know the move, for example `E:\Music` is now `F:\Music`. Relinkbox reads the missing tracks and suggests the deepest folder that holds most of them. You set the old location (as Rekordbox stored it) and the new one. Every missing track under that old folder keeps its subfolders and filename, and the new path is only offered when that file is really there. The same review window opens before anything is saved.
 
 ---
+
+
+
 ### Find music files Rekordbox doesn't have
-<img width="499" height="421" alt="image" src="https://github.com/user-attachments/assets/42905eb4-5ecd-4757-a738-244ed8a19e35" />
+
+![image](https://github.com/user-attachments/assets/42905eb4-5ecd-4757-a738-244ed8a19e35)
 
 Walks the same music folders and lists audio files with no library entry. Overlapping folders are counted once. These formats are included: MP3, FLAC, WAV, AIFF, M4A, AAC, MP4, ALAC, and OGG.
 
@@ -77,26 +92,36 @@ You can then:
 Existing files at the destination are left in place. Relinkbox does not add anything to the library itself.
 
 ---
+
+
+
 ### Rekordbox is showing the wrong file name
-<img width="318" height="127" alt="image" src="https://github.com/user-attachments/assets/fcd91b86-a912-4f3d-8835-8bc345592051" />
+
+![image](https://github.com/user-attachments/assets/fcd91b86-a912-4f3d-8835-8bc345592051)
 
 Rekordbox keeps its own file-name field, separate from the name of the file on disk. After a rename, the track can still display the old name even though the path is correct. This lists every local track where those two differ, shows the name in the library beside the name on disk, and updates the library name after you confirm. The file stays where it is.
 
 ---
+
+
+
 ### Cue Manager
-<img width="1322" height="914" alt="image" src="https://github.com/user-attachments/assets/1d736387-58d8-411d-b669-60ce5b33543c" />
+
+![Cue Manager](docs/cue-manager.gif)
 
 Opens in its own window. It reads the local analysis files Rekordbox already uses on this PC (the beat grid and the waveform) and compares every cue to the nearest beat. USB exports are never touched, and the analysis files themselves are only read. Cue changes are written only to the database.
 
 The scan gives each track one of these verdicts:
 
-| Verdict | What it means |
-| --- | --- |
-| On grid | Every cue is within 2 ms of a beat |
-| Cues off grid | Several cues share one offset, and the drums line up with the grid. The known MP3 encoder delay counts too, even with no waveform. Ticked for snapping. |
-| Grid looks off | The drums line up with the cues, so the grid may be the thing that's wrong |
-| Check manually | Too few cues agree, the offset drifts, or the shift is too large to trust |
-| No beat grid | There is no grid to compare against |
+
+| Verdict        | What it means                                                                                                                                           |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| On grid        | Every cue is within 2 ms of a beat                                                                                                                      |
+| Cues off grid  | Several cues share one offset, and the drums line up with the grid. The known MP3 encoder delay counts too, even with no waveform. Ticked for snapping. |
+| Grid looks off | The drums line up with the cues, so the grid may be the thing that's wrong                                                                              |
+| Check manually | Too few cues agree, the offset drifts, or the shift is too large to trust                                                                               |
+| No beat grid   | There is no grid to compare against                                                                                                                     |
+
 
 You can filter by verdict, search, and sort the list. Select a track to open it in the player: a whole-track strip, a zoomed waveform (Rekordbox’s 3-band waveform when a `.2EX` file exists), hot-cue pads A–H, memory cues, cover art when the file has it, and a volume control. Scroll to zoom, shift-drag to pan, drag to scrub, or click a cue to play from that point. The player can be collapsed.
 
@@ -136,6 +161,8 @@ Cue snaps write the cue’s time (and the loop end, when there is one) in the cu
 - The beat grid, waveform, tags, playlists, and play history
 - Cue points that do not share the offset being snapped, including VBR MP3 cues stored as a byte position
 
+
+
 ## How it keeps your library safe
 
 - **You see every change first.** Each match shows how it was found, a confidence level, and notes.
@@ -147,17 +174,21 @@ Cue snaps write the cue’s time (and the loop end, when there is one) in the cu
 - **It checks its work.** After saving, it re-opens the database and confirms every change is there.
 - **Everything is logged** in `%LOCALAPPDATA%\Relinkbox\logs`. Use **Open log folder** in the app. The main window also keeps the last result: counts, skipped tracks, warnings, and each old path beside the new one.
 
+
+
 ## How matching works
 
 For each missing track, Relinkbox tries these rules in order and stops at the first one that finds a file. The folder-move action above does not use this search. It rewrites the path directly.
 
-| Rule | What it means | Confidence |
-| --- | --- | --- |
-| Same name and size | Same filename, and the same size Rekordbox remembers | High |
-| Same name, different size | Same filename, but the file changed size | Medium |
-| Renamed, same size | Different filename, but exactly the same size | High if the names are at least 95% similar, Medium from 60%, otherwise Low |
-| Same name, different file type | For example `.mp3` became `.flac` | Low |
-| Similar name | Names at least 85% similar | Medium at 95% or more with the same file type (High if the size also matches), otherwise Low |
+
+| Rule                           | What it means                                        | Confidence                                                                                   |
+| ------------------------------ | ---------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Same name and size             | Same filename, and the same size Rekordbox remembers | High                                                                                         |
+| Same name, different size      | Same filename, but the file changed size             | Medium                                                                                       |
+| Renamed, same size             | Different filename, but exactly the same size        | High if the names are at least 95% similar, Medium from 60%, otherwise Low                   |
+| Same name, different file type | For example `.mp3` became `.flac`                    | Low                                                                                          |
+| Similar name                   | Names at least 85% similar                           | Medium at 95% or more with the same file type (High if the size also matches), otherwise Low |
+
 
 A few rules apply on top of that:
 
@@ -201,6 +232,8 @@ Run the tests:
 python -m pip install -e ".[dev]"
 python -m pytest
 ```
+
+
 
 ## Clone from GitHub
 

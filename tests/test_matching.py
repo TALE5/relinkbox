@@ -92,6 +92,30 @@ def test_leading_letter_rename_is_found(tmp_path, write_file):
     assert match.method == Method.SIMILAR_NAME
 
 
+def test_small_rename_is_medium_even_when_library_size_is_stale(tmp_path, write_file):
+    name = "A Place to Bury Strangers - Never Coming Back (Roly Porter remix)"
+    renamed = write_file(tmp_path / "music" / f"{name}1.mp3", 2000)
+    match = only_match(plan_for(tmp_path, [make_track(f"{GONE}/{name}.mp3", 1000)]))
+    assert match.new_path == str(renamed)
+    assert match.confidence == Confidence.MEDIUM
+    assert match.selected_by_default
+
+
+def test_small_rename_with_same_size_is_high(tmp_path, write_file):
+    name = "A Place to Bury Strangers - Never Coming Back (Roly Porter remix)"
+    write_file(tmp_path / "music" / f"{name}1.mp3", 1000)
+    write_file(tmp_path / "music" / "Unrelated.mp3", 1000)
+    match = only_match(plan_for(tmp_path, [make_track(f"{GONE}/{name}.mp3", 1000)]))
+    assert match.confidence == Confidence.HIGH
+
+
+def test_changed_version_number_stays_low(tmp_path, write_file):
+    write_file(tmp_path / "music" / "Artist - Long Track Name (Club Mix) v2.mp3", 2000)
+    match = only_match(plan_for(tmp_path, [make_track(f"{GONE}/Artist - Long Track Name (Club Mix) v1.mp3", 1000)]))
+    assert match.confidence == Confidence.LOW
+    assert any("different version" in note for note in match.notes)
+
+
 def test_type_change_is_low_confidence_and_warns(tmp_path, write_file):
     write_file(tmp_path / "music" / "Song.flac", 500)
     match = only_match(plan_for(tmp_path, [make_track(f"{GONE}/Song.mp3", 100)]))

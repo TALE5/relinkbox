@@ -1,4 +1,5 @@
 import os
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
@@ -9,6 +10,7 @@ from relinkbox.rekordbox import is_local_file_path
 from relinkbox.scan import normalize_path
 
 FUZZY_CUTOFF = 85
+NEAR_IDENTICAL_SCORE = 95
 AMBIGUOUS_MARGIN = 2
 MAX_CANDIDATES = 5
 RENAME_MIN_SCORE = 60
@@ -105,6 +107,13 @@ def _prefer_same_parent(track, entries):
     parent = parent_name(track.path)
     same_parent = [e for e in entries if parent_name(e.path) == parent]
     return same_parent or entries
+
+
+def _numbers_changed(old_stem, new_stem):
+    """True when a number in the old name is gone from the new one, e.g. "v1" became "v2"."""
+    new_numbers = Counter(re.findall(r"\d+", new_stem))
+    old_numbers = Counter(re.findall(r"\d+", old_stem))
+    return any(new_numbers[n] < count for n, count in old_numbers.items())
 
 
 def _size_note(track, entry):
@@ -204,8 +213,16 @@ class Matcher:
                 scored[:MAX_CANDIDATES],
                 ["Several files have exactly the same size. Pick the right one."],
             )
-        confidence = Confidence.MEDIUM if best.score >= RENAME_MIN_SCORE else Confidence.LOW
         notes = [f"Filename changed. Names are {best.score:.0f}% similar; file size is identical."]
+        numbers_changed = _numbers_changed(stem, os.path.splitext(os.path.basename(best.path).lower())[0])
+        if numbers_changed:
+            notes.append("A number in the name changed, so this could be a different version of the track.")
+        if best.score >= NEAR_IDENTICAL_SCORE and not numbers_changed:
+            confidence = Confidence.HIGH
+        elif best.score >= RENAME_MIN_SCORE:
+            confidence = Confidence.MEDIUM
+        else:
+            confidence = Confidence.LOW
         return Match(track, Method.RENAMED_SAME_SIZE, confidence, [best], notes)
 
     def _match_similar(self, track, stem, ext):
@@ -231,12 +248,21 @@ class Matcher:
                 ["Several files have almost the same name. Pick the right one."],
             )
         notes = [f"Names are {best.score:.0f}% similar."]
-        confidence = Confidence.LOW
-        if track.size and best.size == track.size:
-            confidence = Confidence.MEDIUM
+        same_size = bool(track.size) and best.size == track.size
+        same_type = os.path.splitext(best.path)[1].lower() == ext
+        numbers_changed = _numbers_changed(stem, os.path.splitext(os.path.basename(best.path).lower())[0])
+        if same_size:
             notes.append("File size is identical.")
-        if os.path.splitext(best.path)[1].lower() != ext:
+        if not same_type:
             notes.append("File type is different. Re-analyze the track in Rekordbox.")
+        if numbers_changed:
+            notes.append("A number in the name changed, so this could be a different version of the track.")
+
+        confidence = Confidence.LOW
+        if same_type and not numbers_changed and best.score >= NEAR_IDENTICAL_SCORE:
+            confidence = Confidence.HIGH if same_size else Confidence.MEDIUM
+        elif same_size:
+            confidence = Confidence.MEDIUM
         return Match(track, Method.SIMILAR_NAME, confidence, [best], notes)
 
 

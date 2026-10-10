@@ -94,8 +94,6 @@ python -m pip install -e .
 python -m relinkbox
 ```
 
-Or double-click `RUN.bat` after the venv exists.
-
 Run the tests:
 
 ```powershell

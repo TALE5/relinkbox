@@ -57,7 +57,7 @@ excludes = [
 ]
 
 a = Analysis(
-    ["main.py"],
+    ["relinkbox/__main__.py"],
     pathex=[],
     binaries=[],
     datas=[],

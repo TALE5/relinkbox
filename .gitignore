@@ -13,10 +13,3 @@ release/
 Thumbs.db
 Desktop.ini
 .DS_Store
-.Roadmap.md
-
-# Old cuepack-era code and local test data — not part of this release
-legacy/
-cuepack_files/
-testfiles/
-data/

@@ -29,11 +29,11 @@ I bulk rename my music, and at one point I renamed around 10,000 tracks before r
 
 ## What it does
 
-- **Find and relink missing tracks.** Only tracks whose file no longer exists are touched. Relinkbox searches your music folders for each one (see [How matching works](#how-matching-works)).
-- **A folder or drive moved.** When `E:\Music` became `F:\Music`, or a whole folder moved, this relinks exactly by keeping each track's subfolders and filename.
-- **Find files not in Rekordbox.** Save them as an `.m3u8` playlist you can import into Rekordbox, save a plain list, or copy them somewhere.
-- **Fix display names.** Makes the File Name column match the actual file without changing paths.
-- **Check cue points.** Finds tracks whose cues sit off the beat grid by the same amount, shows them on the waveform, and can snap them back. A backup is made first.
+- **Scan for missing tracks.** Only tracks whose file no longer exists are touched. Relinkbox searches your music folders for each one (see [How matching works](#how-matching-works)). A review window opens, and nothing is saved until you confirm.
+- **A whole folder or drive letter changed.** Use this when you already know the folder moved, for example `E:\Music` became `F:\Music`. You enter the old and new location, and every track that lived there keeps its subfolders and filename. This is not a search for individual missing files. You preview the paths before anything is saved.
+- **Find music files Rekordbox doesn't have.** Looks through your music folders for audio files with no library entry. Save them as an `.m3u8` playlist you can import into Rekordbox, save a plain list, or copy them. They are not added to the library.
+- **Rekordbox is showing the wrong file name.** Rekordbox keeps its own file-name field. After you rename a file on disk, that field can still show the old name. This updates the name Rekordbox shows. The file stays where it is, and nothing is saved until you confirm. The review lists each track beside the name in Rekordbox and the name of the file on disk.
+- **Cue Manager.** Opens in its own window. Finds tracks whose cues sit off the beat grid by the same amount, shows them on the waveform, and can snap them back. A backup is made first.
 
 ## How it keeps your library safe
 
@@ -70,7 +70,7 @@ Folders that can't be read are skipped and logged. Streaming tracks (SoundCloud,
 
 ## Cue points
 
-**Check cue points...** opens a separate window. It only reads the local analysis files Rekordbox already uses on this PC (the beat grid and waveform). USB exports are not touched. Cue changes are written only to the database.
+**Cue Manager** opens in its own window. It only reads the local analysis files Rekordbox already uses on this PC (the beat grid and waveform). USB exports are not touched. Cue changes are written only to the database.
 
 For each track with cues it:
 
@@ -140,5 +140,6 @@ Relinkbox is built on these projects, and the downloadable exe and zip include t
 - [RapidFuzz](https://github.com/rapidfuzz/RapidFuzz) (MIT) — fast filename similarity
 - [SQLAlchemy](https://www.sqlalchemy.org/) (MIT) and [sqlcipher3-wheels](https://github.com/laggykiller/sqlcipher3) (zlib) — database access
 - Their own dependencies, such as NumPy and psutil (BSD)
+- [Inter Display](https://github.com/rsms/inter) (SIL Open Font License 1.1) — the interface typeface. Regular and Bold are in `fonts/`, and the license is [OFL.txt](OFL.txt)
 
 In the zip version the Qt libraries are separate files in the `Relinkbox` folder, so you can replace them with your own build. This project is not affiliated with AlphaTheta or Pioneer DJ. Rekordbox is their trademark.

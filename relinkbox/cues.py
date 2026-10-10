@@ -76,6 +76,7 @@ class TrackCueReport:
     sample_rate: int
     cues: list
     bit_rate: int = 0
+    length_sec: int = 0
     genre: str = ""
     verdict: str = Verdict.ON_GRID
     reason: str = ""
@@ -272,6 +273,7 @@ def scan_cues(db_path, progress=None):
                 path=content.FolderPath or "",
                 sample_rate=content.SampleRate or 0,
                 bit_rate=int(content.BitRate or 0),
+                length_sec=int(content.Length or 0),
                 genre=genre_names.get(str(content.GenreID), "") if content.GenreID else "",
                 cues=sorted(cues_by_track[str(content.ID)], key=lambda c: c.in_ms),
             )

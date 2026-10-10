@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Relinkbox application icon</title>
+  <rect x="0" y="0" width="512" height="512" rx="92" fill="#202020"/>
+  <path fill="#E8E8E8" d="M112 86 H285 C360 86 402 125 402 189 C402 235 378 265 338 281 L407 422 H316 L258 296 H202 V422 H112 Z M202 164 V224 H278 C305 224 319 212 319 193 C319 174 305 164 278 164 Z"/>
+  <path fill="#FF910F" d="M202 296 H258 L316 422 H407 L338 281 C323 287 308 293 287 296 Z"/>
+</svg>

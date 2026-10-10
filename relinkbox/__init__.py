@@ -8,4 +8,4 @@ of the License, or (at your option) any later version. It is distributed WITHOUT
 See the LICENSE file or <https://www.gnu.org/licenses/>.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

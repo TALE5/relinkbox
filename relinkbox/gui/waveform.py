@@ -1,3 +1,4 @@
+import bisect
 from collections import namedtuple
 
 import numpy as np
@@ -51,6 +52,7 @@ KIND_COLORS = {
 }
 
 BG = QColor(0, 0, 0)
+SURFACE = QColor("#121214")
 LOW = QColor(26, 82, 196)
 MID = QColor(214, 140, 36)
 HIGH = QColor(248, 244, 232)
@@ -94,13 +96,13 @@ def _resample(data, width):
     return np.clip((sums[idx[1:]] - sums[idx[:-1]]) / counts, 0, 1)
 
 
-def bake_waveform(data, duration_ms, width, height=BAKE_HEIGHT, onesided=False):
+def bake_waveform(data, duration_ms, width, height=BAKE_HEIGHT, onesided=False, background=None):
     """Paint a 3-band picture once. The widget only pastes this afterwards."""
     if data is None or len(data) == 0 or duration_ms <= 0:
         return None
     env = _resample(data, width)
     image = QImage(width, height, QImage.Format_ARGB32_Premultiplied)
-    image.fill(BG)
+    image.fill(BG if background is None else background)
     painter = QPainter(image)
     painter.setRenderHint(QPainter.Antialiasing, True)
 
@@ -146,10 +148,12 @@ def bake_track(waveform, duration_ms):
     overview_src = waveform.overview if waveform.overview is not None else waveform.bands
     if overview_src is None:
         overview_src = waveform.heights
-    return bake_waveform(overview_src, duration_ms, OVERVIEW_WIDTH, height=80, onesided=True)
+    return bake_waveform(
+        overview_src, duration_ms, OVERVIEW_WIDTH, height=80, onesided=True, background=SURFACE
+    )
 
 
-def bake_window(waveform, start_ms, view_ms, width, height):
+def bake_window(waveform, start_ms, view_ms, width, height, background=None):
     """Sharp picture of one time window, at the pixel size of the widget."""
     if waveform is None or view_ms <= 0 or width < 8 or height < 8:
         return None
@@ -158,7 +162,7 @@ def bake_window(waveform, start_ms, view_ms, width, height):
         return None
     i0 = max(0, waveform.index(start_ms))
     i1 = min(len(data), max(i0 + 1, waveform.index(start_ms + view_ms) + 1))
-    return bake_waveform(data[i0:i1], view_ms, width, height)
+    return bake_waveform(data[i0:i1], view_ms, width, height, background=background)
 
 
 def _blit(painter, baked, start_ms, view_ms, target):
@@ -181,7 +185,7 @@ def cue_letter(cue):
 def _draw_badge(painter, x, color, text, y=3, size=BADGE):
     box = QRect(x - size // 2, y, size, size)
     painter.fillRect(box, color)
-    painter.setPen(QColor(20, 20, 20) if color.lightness() > 150 else QColor(255, 255, 255))
+    painter.setPen(QColor(20, 20, 20) if color.lightness() > 150 else QColor("#e6e6ea"))
     font = QFont(painter.font())
     font.setBold(True)
     font.setPixelSize(9 if size < 15 else 11)
@@ -255,7 +259,7 @@ class TrackNavigator(QWidget):
 
     def paintEvent(self, _event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), BG)
+        painter.fillRect(self.rect(), SURFACE)
         w, h = self.width(), self.height()
         if self.overview is not None:
             src = self.overview.image
@@ -268,18 +272,54 @@ class TrackNavigator(QWidget):
         painter.setPen(QPen(QColor(255, 255, 255, 180), 1))
         painter.drawRect(x0, 0, max(x1 - x0, 3), h - 1)
         for cue in self.cues:
-            color = cue_color(cue)
-            x = self._x_at(cue.in_ms)
-            painter.setPen(QPen(color, 2))
-            painter.drawLine(x, 12, x, h - 2)
-            _draw_badge(painter, x, color, cue_letter(cue), y=1, size=12)
+            _draw_badge(painter, self._x_at(cue.in_ms), cue_color(cue), cue_letter(cue), y=1, size=12)
         if self.playhead_ms is not None:
             painter.setPen(QPen(QColor(255, 255, 255), 1))
             painter.drawLine(self._x_at(self.playhead_ms), 0, self._x_at(self.playhead_ms), h)
 
 
+_GRID_BEAT_PX = 22
+_GRID_MIN_PX = 12
+
+
+def _grid_stride(beats, spacing_px):
+    """How many grid steps to skip so lines stay readable at this zoom.
+
+    A line every beat is right when one beat is already wide. Otherwise draw
+    bars, then every 2, 4, 8 bars, until neighboring lines are far enough apart
+    that they no longer cover the waveform.
+    """
+    origin = 0
+    for i, beat in enumerate(beats[:500]):
+        if beat == 1:
+            origin = i
+            break
+    gaps = []
+    previous = None
+    for i, beat in enumerate(beats[:500]):
+        if beat != 1:
+            continue
+        if previous is not None:
+            gaps.append(i - previous)
+            if len(gaps) >= 40:
+                break
+        previous = i
+    bar = 1
+    if gaps:
+        gaps.sort()
+        bar = max(1, gaps[len(gaps) // 2])
+    if spacing_px >= _GRID_BEAT_PX:
+        return 1, origin
+    if spacing_px <= 0:
+        return bar * 64, origin
+    groups = 1
+    while spacing_px * bar * groups < _GRID_MIN_PX and groups < 64:
+        groups *= 2
+    return bar * groups, origin
+
+
 class OverviewWaveform(QWidget):
-    """Detail waveform. Wheel zooms, drag pans, click moves the playhead."""
+    """Detail waveform. Wheel zooms, drag scrubs, shift-drag pans."""
 
     clicked = Signal(int)
     view_changed = Signal(int, int)
@@ -290,6 +330,7 @@ class OverviewWaveform(QWidget):
         self.setMinimumHeight(168)
         self.setMouseTracking(True)
         self.waveform = None
+        self.grid = None
         self.cues = []
         self.proposed = {}
         self.playhead_ms = None
@@ -301,6 +342,7 @@ class OverviewWaveform(QWidget):
         self._press_x = None
         self._press_ms = None
         self._dragged = False
+        self._scrubbing = False
         self._strip = None
         self._strip_meta = None
         self._live = False
@@ -311,8 +353,9 @@ class OverviewWaveform(QWidget):
         self._bake_timer.setSingleShot(True)
         self._bake_timer.timeout.connect(self._apply_pending_bake)
 
-    def set_data(self, waveform, cues, duration_ms=None, overview=None, proposed=None):
+    def set_data(self, waveform, cues, duration_ms=None, overview=None, proposed=None, grid=None):
         self.waveform = waveform
+        self.grid = grid
         self.proposed = proposed or {}
         if duration_ms:
             self.duration_ms = duration_ms
@@ -368,6 +411,19 @@ class OverviewWaveform(QWidget):
         self._last_view_emit = (start, view)
         self.view_changed.emit(start, view)
 
+    def zoom_step(self, factor):
+        """Zoom around the middle of the view. Same limits as the scroll wheel."""
+        if self.duration_ms <= 1 or factor <= 0:
+            return
+        x = self.width() / 2
+        focus = self._time_at(x)
+        self.zoom = max(1.0, min(64.0, self.zoom * factor))
+        self.start_ms = self._clamp_start(focus - (x / max(self.width(), 1)) * self._view_ms())
+        self._zoom_hold = True
+        self._emit_view()
+        self.update()
+        self._bake_timer.start(16)
+
     def wheelEvent(self, event):
         if self.duration_ms <= 1:
             return
@@ -394,12 +450,20 @@ class OverviewWaveform(QWidget):
         self._press_x = event.position().x()
         self._press_ms = self._time_at(self._press_x)
         self._dragged = False
-        if event.button() == Qt.MiddleButton or event.modifiers() & Qt.ShiftModifier or self.zoom > 1:
+        self._scrubbing = False
+        if event.button() == Qt.MiddleButton or event.modifiers() & Qt.ShiftModifier:
             self._drag_x = self._press_x
             self._drag_start = self.start_ms
+            return
+        if event.button() == Qt.LeftButton and self.duration_ms > 1:
+            self._scrubbing = True
+            self.grabMouse()
+            self.playhead_ms = self._press_ms
+            self.update()
+            self.clicked.emit(int(self._press_ms))
 
     def mouseMoveEvent(self, event):
-        if self._press_x is not None and abs(event.position().x() - self._press_x) > 6:
+        if self._press_x is not None and abs(event.position().x() - self._press_x) > 4:
             self._dragged = True
         if self._drag_x is not None:
             dx = event.position().x() - self._drag_x
@@ -412,14 +476,29 @@ class OverviewWaveform(QWidget):
                     self.scrubbed.emit(ms)
             self.update()
             self._emit_view(throttle=True)
+            return
+        if self._scrubbing:
+            ms = int(self._time_at(event.position().x()))
+            self.playhead_ms = ms
+            self.update()
+            if self._last_scrub_ms is None or abs(ms - self._last_scrub_ms) > 30:
+                self._last_scrub_ms = ms
+                self.scrubbed.emit(ms)
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.LeftButton and not self._dragged and self._press_ms is not None:
+        if self._scrubbing:
+            self.releaseMouse()
+            ms = int(self._time_at(event.position().x()))
+            self.playhead_ms = ms
+            self.update()
+            self.scrubbed.emit(ms)
+        elif event.button() == Qt.LeftButton and not self._dragged and self._press_ms is not None:
             self.clicked.emit(self._press_ms)
         self._drag_x = None
         self._press_x = None
         self._press_ms = None
         self._dragged = False
+        self._scrubbing = False
         self._last_scrub_ms = None
         self._emit_view()
 
@@ -442,14 +521,47 @@ class OverviewWaveform(QWidget):
         bake_end = min(self.duration_ms, self.start_ms + view + pad)
         bake_ms = max(bake_end - bake_start, view)
         bake_w = max(w, int(round(px_per_ms * bake_ms)))
-        baked = bake_window(self.waveform, bake_start, bake_ms, bake_w, h)
+        baked = bake_window(self.waveform, bake_start, bake_ms, bake_w, h, background=SURFACE)
         self._strip = QPixmap.fromImage(baked.image) if baked else None
         self._strip_meta = (bake_start, bake_ms, bake_w, h)
         return self._strip
 
+    def _paint_grid(self, painter, h):
+        grid = self.grid
+        if grid is None or len(grid) == 0:
+            return
+        view = self._view_ms()
+        if view <= 0:
+            return
+        w = max(self.width(), 1)
+        spacing = w * grid.beat_length(self.start_ms + view / 2) / view
+        times = grid.times
+        beats = grid.beats
+        step, origin = _grid_stride(beats, spacing)
+        i0 = bisect.bisect_left(times, self.start_ms)
+        i1 = bisect.bisect_right(times, self.start_ms + view)
+        if step <= 1:
+            for i in range(i0, i1):
+                x = self._x_at(times[i])
+                if beats[i] == 1:
+                    painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
+                else:
+                    painter.setPen(QPen(QColor(255, 255, 255, 55), 1))
+                painter.drawLine(x, 0, x, h)
+            return
+        if i0 <= origin:
+            i = origin
+        else:
+            i = origin + ((i0 - origin + step - 1) // step) * step
+        painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
+        while i < i1:
+            x = self._x_at(times[i])
+            painter.drawLine(x, 0, x, h)
+            i += step
+
     def paintEvent(self, _event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), BG)
+        painter.fillRect(self.rect(), SURFACE)
         strip = self._ensure_strip()
         w, h = self.width(), self.height()
         if strip is None or self._strip_meta is None:
@@ -460,6 +572,7 @@ class OverviewWaveform(QWidget):
         x0 = (self.start_ms - cover_start) / cover_ms * cover_w
         span = max(self._view_ms() / cover_ms * cover_w, 1)
         painter.drawPixmap(QRectF(self.rect()), strip, QRectF(x0, 0, span, cover_h))
+        self._paint_grid(painter, h)
         for cue in self.cues:
             color = cue_color(cue)
             x = self._x_at(cue.in_ms)
@@ -478,8 +591,6 @@ class OverviewWaveform(QWidget):
         if self.playhead_ms is not None:
             painter.setPen(QPen(QColor(255, 255, 255), 1))
             painter.drawLine(self._x_at(self.playhead_ms), 0, self._x_at(self.playhead_ms), h)
-        painter.setPen(QColor(150, 150, 150))
-        painter.drawText(6, h - 6, f"{self.zoom:.0f}×   scroll to zoom, drag to pan")
 
 
 class CueOffsetRow(QWidget):
@@ -489,10 +600,11 @@ class CueOffsetRow(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(96)
+        self.setFixedHeight(90)
         self.waveform = None
         self.grid = None
         self.cues = []
+        self.active_kind = None
         self._cache = {}
 
     def set_data(self, waveform, grid, cues):
@@ -501,8 +613,13 @@ class CueOffsetRow(QWidget):
         self.waveform = waveform
         self.grid = grid
         self.cues = hot
+        self.active_kind = None
         self._cache = {}
         self.setVisible(bool(hot))
+        self.update()
+
+    def set_active(self, kind):
+        self.active_kind = kind
         self.update()
 
     def _nearest(self, cue):
@@ -527,27 +644,38 @@ class CueOffsetRow(QWidget):
 
     def paintEvent(self, _event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(12, 12, 12))
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.fillRect(self.rect(), SURFACE)
         if not self.cues:
             return
         n = len(self.cues)
-        gap = 6
+        gap = 4
         cell_w = max((self.width() - gap * (n - 1)) / n, 1)
-        label_h = 16
         for i, cue in enumerate(self.cues):
-            x = int(i * (cell_w + gap))
-            w = max(int(cell_w), 1)
-            self._paint_cell(painter, cue, x, w, self.height(), label_h)
+            x = int(round(i * (cell_w + gap)))
+            if i == n - 1:
+                w = max(self.width() - x, 1)
+            else:
+                w = max(int(round(cell_w)), 1)
+            self._paint_cell(painter, cue, x, w, self.height())
 
-    def _paint_cell(self, painter, cue, x, w, h, label_h):
+    def _paint_cell(self, painter, cue, x, w, h):
+        bar = 20
+        radius = 5
         nearest = self._nearest(cue)
         delta = cue.in_ms - nearest
         beat = self.grid.beat_length(cue.in_ms) if self.grid is not None and len(self.grid) else 500
         span = self._span(delta, beat, w)
         start = max(0, (cue.in_ms + nearest) / 2 - span / 2)
-        wave_h = max(h - label_h, 8)
+        wave_h = max(h - bar, 8)
+        cell = QRectF(x, 0, w, h).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.save()
+        clip = QPainterPath()
+        clip.addRoundedRect(cell, radius, radius)
+        painter.setClipPath(clip)
+        painter.fillRect(QRect(x, 0, w, bar), SURFACE)
+        target = QRect(x, bar, w, wave_h)
         pix = self._baked(cue, start, span, w, wave_h)
-        target = QRect(x, 0, w, wave_h)
         if pix is not None:
             painter.drawPixmap(target, pix)
         else:
@@ -562,18 +690,38 @@ class CueOffsetRow(QWidget):
                     painter.setPen(QPen(QColor(255, 255, 255, 150), 1))
                 else:
                     painter.setPen(QPen(QColor(180, 180, 180, 80), 1))
-                painter.drawLine(px, 0, px, wave_h)
+                painter.drawLine(px, bar, px, h)
         color = cue_color(cue)
         cue_x = int(x + (cue.in_ms - start) / span * w)
         painter.setPen(QPen(color, 2))
-        painter.drawLine(cue_x, 0, cue_x, wave_h)
+        painter.drawLine(cue_x, bar, cue_x, h)
         if abs(delta) > 2:
             beat_x = int(x + (nearest - start) / span * w)
             painter.setPen(QPen(QColor(255, 255, 255), 1, Qt.DashLine))
-            painter.drawLine(beat_x, 0, beat_x, wave_h)
+            painter.drawLine(beat_x, bar, beat_x, h)
         text = "on grid" if abs(delta) <= 2 else f"{delta:+.0f} ms"
-        painter.setPen(QColor(168, 168, 168))
-        painter.drawText(QRect(x, wave_h, w, label_h), Qt.AlignCenter, f"{cue_letter(cue)}   {text}")
+        font = QFont(painter.font())
+        font.setBold(True)
+        font.setPixelSize(11)
+        painter.setFont(font)
+        box = 16
+        gx = x + 6
+        gy = max((bar - box) // 2, 0)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(color)
+        painter.drawRect(gx, gy, box, box)
+        letter_ink = QColor(20, 20, 20) if color.lightness() > 150 else QColor("#e6e6ea")
+        painter.setPen(letter_ink)
+        painter.drawText(QRect(gx, gy, box, box), Qt.AlignCenter, cue_letter(cue))
+        available = max(w - (gx - x) - box - 10, 0)
+        shown = painter.fontMetrics().elidedText(text, Qt.ElideRight, available)
+        painter.setPen(QColor("#c4c4ca"))
+        painter.drawText(QRect(gx + box + 5, 0, available, bar), Qt.AlignVCenter | Qt.AlignLeft, shown)
+        painter.restore()
+        edge = QColor("#6a6a72") if cue.kind == self.active_kind else QColor("#3a3a40")
+        painter.setPen(QPen(edge, 1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(cell, radius, radius)
 
 
 class CueStrip(QWidget):

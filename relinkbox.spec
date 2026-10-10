@@ -6,8 +6,46 @@ that gets zipped. build_release.ps1 runs both.
 """
 
 import os
+import re
+
+from PyInstaller.utils.win32.versioninfo import (
+    FixedFileInfo,
+    StringFileInfo,
+    StringStruct,
+    StringTable,
+    VarFileInfo,
+    VarStruct,
+    VSVersionInfo,
+)
 
 onefile = os.environ.get("RELINKBOX_ONEFILE") == "1"
+
+_version_text = open("relinkbox/__init__.py", encoding="utf-8").read()
+_version = re.search(r'__version__\s*=\s*"([^"]+)"', _version_text).group(1)
+_parts = [int(part) if part.isdigit() else 0 for part in _version.split(".")]
+_parts = tuple((_parts + [0, 0, 0, 0])[:4])
+
+version_info = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=_parts, prodvers=_parts),
+    kids=[
+        StringFileInfo([
+            StringTable(
+                "040904B0",
+                [
+                    StringStruct("CompanyName", "TALE5"),
+                    StringStruct("FileDescription", "Relink Rekordbox library tracks to files on disk"),
+                    StringStruct("FileVersion", _version),
+                    StringStruct("InternalName", "Relinkbox"),
+                    StringStruct("LegalCopyright", "Copyright (C) 2026 TALE5. GPL-3.0-or-later."),
+                    StringStruct("OriginalFilename", "Relinkbox.exe"),
+                    StringStruct("ProductName", "Relinkbox"),
+                    StringStruct("ProductVersion", _version),
+                ],
+            )
+        ]),
+        VarFileInfo([VarStruct("Translation", [1033, 1200])]),
+    ],
+)
 
 hiddenimports = [
     "sqlcipher3",
@@ -59,7 +97,11 @@ a = Analysis(
     ["relinkbox/__main__.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ("fonts", "fonts"),
+        ("OFL.txt", "."),
+        ("relinkbox_brand_assets", "relinkbox_brand_assets"),
+    ],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
@@ -83,6 +125,8 @@ exe_kwargs = dict(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon="relinkbox_brand_assets/app_icon/relinkbox.ico",
+    version=version_info,
 )
 
 if onefile:

@@ -2,7 +2,7 @@ import os
 import shutil
 
 from PySide6.QtCore import QSettings, Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QFontMetrics
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QProgressDialog,
     QPushButton,
+    QSizePolicy,
     QTextEdit,
     QToolButton,
     QVBoxLayout,
@@ -22,8 +23,10 @@ from PySide6.QtWidgets import (
 )
 
 from relinkbox import __version__
+from relinkbox.brand import apply_window_icon, assets_dir, trimmed_pixmap
+from relinkbox.gui.fonts import ui_font
 from relinkbox.backup import backups_root, list_backups, restore_backup
-from relinkbox.gui.dialogs import FolderMovedDialog, RestoreDialog
+from relinkbox.gui.dialogs import DisplayNameDialog, FolderMovedDialog, RestoreDialog
 from relinkbox.gui.preview import PreviewDialog
 from relinkbox.gui.workers import TaskRunner
 from relinkbox.logs import log_dir
@@ -47,11 +50,50 @@ def _open_folder(path):
     QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
 
+class _ActionButton(QPushButton):
+    """QPushButton's own size ignores a child layout, which clips the two lines."""
+
+    def sizeHint(self):
+        layout = self.layout()
+        if layout is None:
+            return super().sizeHint()
+        return layout.sizeHint()
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+
+def _action_button(title, detail, tip):
+    """Two-line action: the title is bold, the parenthetical line is not."""
+    button = _ActionButton()
+    button.setObjectName("actionButton")
+    button.setToolTip(tip)
+    button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+    text = QVBoxLayout(button)
+    text.setContentsMargins(12, 8, 12, 8)
+    text.setSpacing(1)
+    title_label = QLabel(title)
+    title_label.setFont(ui_font(10, bold=True))
+    title_label.setAlignment(Qt.AlignCenter)
+    detail_label = QLabel(detail)
+    detail_label.setFont(ui_font(10))
+    detail_label.setAlignment(Qt.AlignCenter)
+    detail_label.setWordWrap(True)
+    for label in (title_label, detail_label):
+        label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        label.setMinimumHeight(QFontMetrics(label.font()).lineSpacing() + 2)
+        text.addWidget(label)
+    return button
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.setFont(ui_font(10))
+        self.setStyleSheet("QMainWindow { background: #121214; }")
+        apply_window_icon(self)
         self.setWindowTitle(f"Relinkbox {__version__}")
-        self.setMinimumSize(820, 620)
+        self.setMinimumSize(820, 760)
         self.settings = QSettings("Relinkbox", "Relinkbox")
 
         self.db_path = None
@@ -60,16 +102,61 @@ class MainWindow(QMainWindow):
         self.tasks = TaskRunner(self, self._set_busy, self._on_progress, self._failed)
 
         root = QWidget()
-        layout = QVBoxLayout(root)
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
         self.setCentralWidget(root)
+        header = self._brand_header()
+        if header is not None:
+            outer.addWidget(header)
+        body = QWidget()
+        body.setObjectName("mainBody")
+        body.setFont(ui_font(10))
+        body.setAttribute(Qt.WA_StyledBackground, True)
+        # Page, fields, and text use the same colors as Cue Manager.
+        body.setStyleSheet(
+            "QWidget#mainBody { background: #121214; }"
+            "QGroupBox {"
+            " background: #121214; color: #c4c4ca;"
+            " border: 1px solid #2a2a2e; border-radius: 6px;"
+            " margin-top: 10px; padding: 12px 8px 8px 8px;"
+            "}"
+            "QGroupBox::title {"
+            " subcontrol-origin: margin; subcontrol-position: top left;"
+            " left: 12px; padding: 0 4px; color: #c4c4ca; background: #121214;"
+            "}"
+            "QLabel { color: #c4c4ca; background: transparent; }"
+            "QLabel#statusLabel { color: #9a9aa2; }"
+            "QLabel#rekordboxBanner {"
+            " background: #fef3c7; color: #78350f; padding: 6px; border-radius: 4px;"
+            "}"
+            "QListWidget, QTextEdit {"
+            " color: #c4c4ca; background: #1c1c20; border: 1px solid #34343a;"
+            " border-radius: 6px; selection-background-color: #3a332c; selection-color: #c4c4ca;"
+            "}"
+            "QListWidget::item { color: #c4c4ca; padding: 2px 4px; }"
+            "QListWidget::item:selected { background: #3a332c; color: #c4c4ca; }"
+            "QPushButton, QToolButton {"
+            " background: #2a2a2e; color: #c4c4ca; border: 1px solid #3c3c42;"
+            " border-radius: 6px; padding: 4px 12px;"
+            "}"
+            "QPushButton#actionButton { padding: 0; }"
+            "QPushButton:hover, QToolButton:hover { background: #34343a; }"
+            "QPushButton:disabled, QToolButton:disabled {"
+            " background: #1c1c20; color: #8e8e96; border-color: #333338;"
+            "}"
+            "QPushButton#logButton { color: #c4c4ca; background: transparent; border: none; }"
+            "QPushButton#cuesButton QLabel { color: #ffffff; background: transparent; font-weight: 700; }"
+        )
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(11, 12, 11, 11)
+        outer.addWidget(body, 1)
 
         self.rekordbox_banner = QLabel(
             "Rekordbox is running. You can scan, but close Rekordbox before saving any changes."
         )
+        self.rekordbox_banner.setObjectName("rekordboxBanner")
         self.rekordbox_banner.setWordWrap(True)
-        self.rekordbox_banner.setStyleSheet(
-            "background: #fef3c7; color: #78350f; padding: 6px; border-radius: 4px;"
-        )
         self.rekordbox_banner.setVisible(False)
         layout.addWidget(self.rekordbox_banner)
 
@@ -111,49 +198,93 @@ class MainWindow(QMainWindow):
         folder_buttons.addWidget(self.remove_folder_button)
         folder_buttons.addStretch(1)
         music_layout.addLayout(folder_buttons)
-        layout.addWidget(music_box)
 
-        actions_box = QGroupBox("What do you want to do?")
-        actions = QVBoxLayout(actions_box)
-        self.relink_button = QPushButton("Find and relink missing tracks")
-        self.relink_button.setToolTip(
-            "Looks for tracks whose file is missing and finds them in your music folders. "
-            "You review every change before anything is saved."
-        )
-        self.relink_button.clicked.connect(self.run_relinker)
-        self.moved_button = QPushButton("A folder or drive moved...")
-        self.moved_button.setToolTip("Exact relink when a whole folder moved or a drive letter changed.")
-        self.moved_button.clicked.connect(self.folder_moved)
-        self.untracked_button = QPushButton("Find files not in Rekordbox")
-        self.untracked_button.clicked.connect(self.find_untracked)
-        self.display_button = QPushButton("Fix display names")
-        self.display_button.setToolTip("Makes the File Name column match the actual file. Paths are not changed.")
-        self.display_button.clicked.connect(self.update_display_names)
-        row1 = QHBoxLayout()
-        row1.addWidget(self.relink_button, 2)
-        row1.addWidget(self.moved_button, 1)
-        row2 = QHBoxLayout()
-        row2.addWidget(self.untracked_button)
-        row2.addWidget(self.display_button)
-        actions.addLayout(row1)
-        actions.addLayout(row2)
-        layout.addWidget(actions_box)
-
-        cue_box = QGroupBox("Cue points")
+        cue_box = QGroupBox("Cue Manager")
+        cue_box.setObjectName("cueBox")
+        cue_box.setFont(ui_font(14))
         cue_layout = QVBoxLayout(cue_box)
-        self.cues_button = QPushButton("Check cue points...")
-        self.cues_button.setMinimumHeight(36)
+        self.cues_button = QPushButton()
+        self.cues_button.setObjectName("cuesButton")
+        self.cues_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        cue_text = QVBoxLayout(self.cues_button)
+        cue_text.setContentsMargins(8, 8, 8, 8)
+        cue_text.setSpacing(2)
+        cue_title = QLabel("Cue Manager")
+        cue_title.setFont(ui_font(14, bold=True))
+        cue_title.setAlignment(Qt.AlignCenter)
+        cue_sub = QLabel("(Opens in new window)")
+        cue_sub.setFont(ui_font(10, bold=True))
+        cue_sub.setAlignment(Qt.AlignCenter)
+        for cue_label in (cue_title, cue_sub):
+            cue_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            cue_text.addWidget(cue_label)
         self.cues_button.setToolTip(
             "Opens a separate window to find cue points that sit off the beat grid and snap them back."
         )
+        self.cues_button.setStyleSheet(
+            "QPushButton {"
+            " background: #FF910F; color: #ffffff; font-weight: 700;"
+            " border: 1px solid #e07f00; border-radius: 4px; padding: 8px;"
+            "}"
+            "QPushButton:hover { background: #ff9d33; }"
+            "QPushButton:pressed { background: #e07f00; }"
+            "QPushButton:disabled { background: #e8c9a0; color: #ffffff; border-color: #d7b48a; }"
+        )
         self.cues_button.clicked.connect(self.open_cue_manager)
         cue_layout.addWidget(self.cues_button)
-        cue_hint = QLabel("A separate tool. It does not relink files.")
-        cue_hint.setStyleSheet("color: #666;")
-        cue_layout.addWidget(cue_hint)
-        layout.addWidget(cue_box)
+        cue_box.setFixedWidth(210)
+
+        folders_row = QHBoxLayout()
+        folders_row.setSpacing(12)
+        folders_row.addWidget(music_box, 1)
+        folders_row.addWidget(cue_box)
+        layout.addLayout(folders_row)
+
+        actions_box = QGroupBox("What do you want to do?")
+        actions = QVBoxLayout(actions_box)
+        self.relink_button = _action_button(
+            "Scan for missing tracks",
+            "(Review window. Nothing is saved until you confirm.)",
+            "Looks for tracks whose file is missing and finds them in your music folders. "
+            "Clicking only scans. A separate window opens so you can review matches. "
+            "Nothing is written unless you confirm there.",
+        )
+        self.relink_button.clicked.connect(self.run_relinker)
+        self.moved_button = _action_button(
+            "A whole folder or drive letter changed",
+            "(You enter the old and new location. Preview before anything is saved.)",
+            "Use this when you already know the folder moved, for example E:\\Music is now F:\\Music. "
+            "Every track that lived there is pointed at the new place. "
+            "This is not a search for individual missing files. Nothing is saved until you confirm.",
+        )
+        self.moved_button.clicked.connect(self.folder_moved)
+        self.untracked_button = _action_button(
+            "Find music files Rekordbox doesn't have",
+            "(Files in your folders with no library entry. A list only. They are not added.)",
+            "Looks through your music folders for audio files that are not in the Rekordbox library. "
+            "You can save the list or copy the files. Nothing is added to Rekordbox.",
+        )
+        self.untracked_button.clicked.connect(self.find_untracked)
+        self.display_button = _action_button(
+            "Rekordbox is showing the wrong file name",
+            "(The name in the library doesn't match the file. The file stays put. You confirm first.)",
+            "Rekordbox has its own file-name field, separate from the file on disk. "
+            "When you rename a file, that field can keep the old name. "
+            "This updates the name Rekordbox shows. The file's location is not changed, "
+            "and nothing is saved until you confirm.",
+        )
+        self.display_button.clicked.connect(self.update_display_names)
+        for button in (
+            self.relink_button,
+            self.moved_button,
+            self.untracked_button,
+            self.display_button,
+        ):
+            actions.addWidget(button)
+        layout.addWidget(actions_box)
 
         self.status_label = QLabel()
+        self.status_label.setObjectName("statusLabel")
         layout.addWidget(self.status_label)
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
@@ -168,6 +299,7 @@ class MainWindow(QMainWindow):
         footer = QHBoxLayout()
         footer.addStretch(1)
         log_button = QPushButton("Open log folder")
+        log_button.setObjectName("logButton")
         log_button.setFlat(True)
         log_button.clicked.connect(lambda: _open_folder(log_dir()))
         footer.addWidget(log_button)
@@ -192,6 +324,26 @@ class MainWindow(QMainWindow):
         self._check_rekordbox()
 
     # ----- settings and state -----
+
+    def _brand_header(self):
+        folder = assets_dir()
+        if folder is None:
+            return None
+        word = trimmed_pixmap(folder / "png" / "relinkbox-wordmark-transparent.png", 30)
+        if word.isNull():
+            return None
+        header = QWidget()
+        header.setObjectName("brandHeader")
+        header.setAttribute(Qt.WA_StyledBackground, True)
+        header.setStyleSheet("QWidget#brandHeader { background: #202020; }")
+        row = QHBoxLayout(header)
+        row.setContentsMargins(16, 12, 16, 12)
+        word_label = QLabel()
+        word_label.setPixmap(word)
+        word_label.setStyleSheet("background: transparent;")
+        row.addWidget(word_label)
+        row.addStretch(1)
+        return header
 
     def _load_settings(self):
         saved_db = self.settings.value("db_path", "")
@@ -428,19 +580,8 @@ class MainWindow(QMainWindow):
             self.status_label.setText("All display names already match their files.")
             QMessageBox.information(self, "Nothing to fix", "All display names already match their files.")
             return
-        box = QMessageBox(self)
-        box.setWindowTitle("Fix display names")
-        box.setIcon(QMessageBox.Question)
-        box.setText(f"{len(changes):,} track(s) show a different file name than the actual file.")
-        box.setInformativeText(
-            "Update the File Name column to match? File paths are not changed, and a backup is made first. "
-            "Click Show Details to see every change."
-        )
-        box.setDetailedText(
-            "\n".join(f"{c.track.display_name or '(empty)'}  ->  {c.new_path}" for c in changes)
-        )
-        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        if box.exec() == QMessageBox.Yes and self._confirm_rekordbox_closed():
+        dialog = DisplayNameDialog(changes, self)
+        if dialog.exec() and self._confirm_rekordbox_closed():
             self._run(apply_display_names, (self.db_path, changes), self._display_done, "Updating display names...")
 
     def _display_done(self, result):

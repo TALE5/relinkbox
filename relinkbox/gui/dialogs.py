@@ -2,16 +2,20 @@ import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
 )
 
@@ -147,3 +151,88 @@ class RestoreDialog(QDialog):
         if path:
             self.selected = backup_from_file(path)
             self.accept()
+
+
+class DisplayNameDialog(QDialog):
+    """Before/after view of the file name Rekordbox shows versus the file on disk."""
+
+    def __init__(self, changes, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("File names in Rekordbox")
+        self.resize(920, 520)
+        self.setStyleSheet(
+            "QDialog { background: #121214; color: #c4c4ca; }"
+            "QLabel { color: #c4c4ca; }"
+            "QTableWidget {"
+            " background: #1c1c20; color: #c4c4ca; border: 1px solid #34343a;"
+            " gridline-color: #2a2a2e; selection-background-color: #3a332c;"
+            " selection-color: #c4c4ca;"
+            "}"
+            "QHeaderView::section {"
+            " background: #2c2c34; color: #c4c4ca; border: none;"
+            " border-bottom: 1px solid #3a3a42; padding: 6px 8px; font-weight: 700;"
+            "}"
+            "QPushButton {"
+            " background: #2a2a2e; color: #c4c4ca; border: 1px solid #3c3c42;"
+            " border-radius: 6px; padding: 6px 14px;"
+            "}"
+            "QPushButton:hover { background: #34343a; }"
+            "QPushButton#updateNames {"
+            " background: #FF910F; color: #ffffff; font-weight: 700; border: none;"
+            "}"
+            "QPushButton#updateNames:hover { background: #ff9d33; }"
+        )
+
+        layout = QVBoxLayout(self)
+        count = len(changes)
+        summary = QLabel(
+            f"{count:,} track(s) where the name Rekordbox shows does not match the file on disk."
+        )
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+        hint = QLabel(
+            "The file stays where it is. Only the name shown in Rekordbox changes. "
+            "A backup is made before anything is saved."
+        )
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        table = QTableWidget(count, 3)
+        table.setHorizontalHeaderLabels(("Track", "Shown in Rekordbox", "File on disk"))
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SingleSelection)
+        table.setShowGrid(False)
+        table.setAlternatingRowColors(True)
+        table.verticalHeader().setDefaultSectionSize(32)
+        for row, change in enumerate(changes):
+            track = change.track
+            shown = track.display_name or "(empty)"
+            actual = change.new_path or "(empty)"
+            location = track.path or ""
+            cells = (
+                (track.label, location),
+                (shown, shown),
+                (actual, actual),
+            )
+            for column, (text, tip) in enumerate(cells):
+                item = QTableWidgetItem(text)
+                item.setToolTip(tip or text)
+                table.setItem(row, column, item)
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        layout.addWidget(table, 1)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        update = QPushButton("Update these names")
+        update.setObjectName("updateNames")
+        update.clicked.connect(self.accept)
+        buttons.addWidget(cancel)
+        buttons.addWidget(update)
+        layout.addLayout(buttons)

@@ -1,48 +1,27 @@
+import logging
+
 from PySide6.QtCore import QObject, Signal
 
-from relinkbox.relink import (
-    find_untracked_files,
-    relink_tracks,
-    update_display_filenames,
-)
+log = logging.getLogger(__name__)
 
 
-class RelinkWorker(QObject):
-    finished = Signal(dict)
-    progress = Signal(int, int)
+class Worker(QObject):
+    """Runs fn(*args, progress=callback) on a background thread."""
 
-    def __init__(self, db_path, music_folder):
+    finished = Signal(object)
+    failed = Signal(str)
+    progress = Signal(int, str)
+
+    def __init__(self, fn, *args):
         super().__init__()
-        self.db_path = db_path
-        self.music_folder = music_folder
+        self.fn = fn
+        self.args = args
 
     def run(self):
-        stats = relink_tracks(self.db_path, self.music_folder, self.progress.emit)
-        self.finished.emit(stats)
-
-
-class UntrackedFilesWorker(QObject):
-    finished = Signal(list)
-    progress = Signal(int, int)
-
-    def __init__(self, db_path, music_folder):
-        super().__init__()
-        self.db_path = db_path
-        self.music_folder = music_folder
-
-    def run(self):
-        files = find_untracked_files(self.db_path, self.music_folder, self.progress.emit)
-        self.finished.emit(files)
-
-
-class UpdateDisplayFilenamesWorker(QObject):
-    finished = Signal(dict)
-    progress = Signal(int, int)
-
-    def __init__(self, db_path):
-        super().__init__()
-        self.db_path = db_path
-
-    def run(self):
-        stats = update_display_filenames(self.db_path, self.progress.emit)
-        self.finished.emit(stats)
+        try:
+            result = self.fn(*self.args, progress=self.progress.emit)
+        except Exception as e:
+            log.exception("%s failed", getattr(self.fn, "__name__", "task"))
+            self.failed.emit(str(e))
+            return
+        self.finished.emit(result)

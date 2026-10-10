@@ -1,13 +1,14 @@
 import os
 import shutil
-from datetime import datetime
 
-from PySide6.QtCore import Qt, QThread
+from PySide6.QtCore import QSettings, Qt, QThread, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QApplication,
     QFileDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
     QMainWindow,
     QMessageBox,
     QProgressBar,
@@ -18,433 +19,544 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from relinkbox.gui.workers import (
-    RelinkWorker,
-    UntrackedFilesWorker,
-    UpdateDisplayFilenamesWorker,
+from relinkbox import __version__
+from relinkbox.backup import backups_root, list_backups, restore_backup
+from relinkbox.gui.dialogs import FolderMovedDialog, RestoreDialog
+from relinkbox.gui.preview import PreviewDialog
+from relinkbox.gui.workers import Worker
+from relinkbox.logs import log_dir
+from relinkbox.matching import suggest_moved_prefix
+from relinkbox.rekordbox import find_default_database, is_rekordbox_running
+from relinkbox.relink import (
+    apply_display_names,
+    apply_relinks,
+    find_untracked_files,
+    missing_tracks,
+    plan_display_names,
+    scan_folder_move,
+    scan_library,
 )
+from relinkbox.reports import write_m3u8, write_text_list
+
+ROLE_DIR = Qt.UserRole
+
+
+def _open_folder(path):
+    QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Relinkbox")
-        self.setMinimumWidth(800)
-        self.setMinimumHeight(520)
+        self.setWindowTitle(f"Relinkbox {__version__}")
+        self.setMinimumSize(820, 620)
+        self.settings = QSettings("Relinkbox", "Relinkbox")
 
         self.db_path = None
-        self.music_folder = None
-        self.last_backup_path = None
         self.thread = None
         self.worker = None
+        self._on_done = None
+        self.last_backup = None
 
         root = QWidget()
         layout = QVBoxLayout(root)
         self.setCentralWidget(root)
 
-        self.label = QLabel("Choose files to start...")
-        self.label.setWordWrap(True)
-        layout.addWidget(self.label)
+        self.rekordbox_banner = QLabel(
+            "Rekordbox is running. You can scan, but close Rekordbox before saving any changes."
+        )
+        self.rekordbox_banner.setWordWrap(True)
+        self.rekordbox_banner.setStyleSheet(
+            "background: #fef3c7; color: #78350f; padding: 6px; border-radius: 4px;"
+        )
+        self.rekordbox_banner.setVisible(False)
+        layout.addWidget(self.rekordbox_banner)
 
-        db_row = QHBoxLayout()
-        self.db_button = QPushButton("Select Rekordbox Database")
+        db_box = QGroupBox("Rekordbox library")
+        db_layout = QVBoxLayout(db_box)
+        self.db_label = QLabel()
+        self.db_label.setWordWrap(True)
+        self.db_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        db_layout.addWidget(self.db_label)
+        db_buttons = QHBoxLayout()
+        self.db_button = QPushButton("Choose database...")
         self.db_button.clicked.connect(self.select_database)
-        db_row.addWidget(self.db_button)
-
-        self.restore_button = QPushButton("Restore Backup")
+        self.restore_button = QPushButton("Restore a backup...")
         self.restore_button.clicked.connect(self.restore_backup)
-        self.restore_button.setEnabled(False)
-        self.restore_button.setToolTip("Restore the database from a backup")
-        db_row.addWidget(self.restore_button)
-        layout.addLayout(db_row)
+        self.backups_button = QPushButton("Open backups folder")
+        self.backups_button.clicked.connect(self.open_backups_folder)
+        for button in (self.db_button, self.restore_button, self.backups_button):
+            db_buttons.addWidget(button)
+        db_buttons.addStretch(1)
+        db_layout.addLayout(db_buttons)
+        layout.addWidget(db_box)
 
-        self.music_button = QPushButton("Select Music Folder")
-        self.music_button.clicked.connect(self.select_folder)
-        layout.addWidget(self.music_button)
+        music_box = QGroupBox("Music folders to search")
+        music_layout = QVBoxLayout(music_box)
+        self.folder_list = QListWidget()
+        self.folder_list.setMaximumHeight(110)
+        music_layout.addWidget(self.folder_list)
+        folder_buttons = QHBoxLayout()
+        self.add_folder_button = QPushButton("Add folder...")
+        self.add_folder_button.clicked.connect(self.add_folder)
+        self.remove_folder_button = QPushButton("Remove selected")
+        self.remove_folder_button.clicked.connect(self.remove_folder)
+        folder_buttons.addWidget(self.add_folder_button)
+        folder_buttons.addWidget(self.remove_folder_button)
+        folder_buttons.addStretch(1)
+        music_layout.addLayout(folder_buttons)
+        layout.addWidget(music_box)
 
+        actions_box = QGroupBox("What do you want to do?")
+        actions = QVBoxLayout(actions_box)
+        self.relink_button = QPushButton("Find and relink missing tracks")
+        self.relink_button.setToolTip(
+            "Looks for tracks whose file is missing and finds them in your music folders. "
+            "You review every change before anything is saved."
+        )
+        self.relink_button.clicked.connect(self.run_relinker)
+        self.moved_button = QPushButton("A folder or drive moved...")
+        self.moved_button.setToolTip("Exact relink when a whole folder moved or a drive letter changed.")
+        self.moved_button.clicked.connect(self.folder_moved)
+        self.untracked_button = QPushButton("Find files not in Rekordbox")
+        self.untracked_button.clicked.connect(self.find_untracked)
+        self.display_button = QPushButton("Fix display names")
+        self.display_button.setToolTip("Makes the File Name column match the actual file. Paths are not changed.")
+        self.display_button.clicked.connect(self.update_display_names)
+        row1 = QHBoxLayout()
+        row1.addWidget(self.relink_button, 2)
+        row1.addWidget(self.moved_button, 1)
+        row2 = QHBoxLayout()
+        row2.addWidget(self.untracked_button)
+        row2.addWidget(self.display_button)
+        actions.addLayout(row1)
+        actions.addLayout(row2)
+        layout.addWidget(actions_box)
+
+        self.status_label = QLabel()
+        layout.addWidget(self.status_label)
         self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
-        actions = QHBoxLayout()
-        self.run_button = QPushButton("Run Relinker")
-        self.run_button.clicked.connect(self.run_relinker)
-        actions.addWidget(self.run_button)
-
-        self.find_button = QPushButton("Find Untracked Files")
-        self.find_button.clicked.connect(self.find_untracked)
-        actions.addWidget(self.find_button)
-
-        self.update_display_button = QPushButton("Fix Display Names")
-        self.update_display_button.clicked.connect(self.update_display_names)
-        self.update_display_button.setToolTip(
-            "Updates displayed filenames without changing file paths"
-        )
-        actions.addWidget(self.update_display_button)
-        layout.addLayout(actions)
-
-        layout.addWidget(QLabel("Results:"))
         self.results_area = QTextEdit()
         self.results_area.setReadOnly(True)
-        self.results_area.setVisible(False)
-        layout.addWidget(self.results_area)
+        self.results_area.setPlaceholderText("Results appear here.")
+        layout.addWidget(self.results_area, 1)
 
-        self.auto_detect_database()
+        footer = QHBoxLayout()
+        footer.addStretch(1)
+        log_button = QPushButton("Open log folder")
+        log_button.setFlat(True)
+        log_button.clicked.connect(lambda: _open_folder(log_dir()))
+        footer.addWidget(log_button)
+        layout.addLayout(footer)
+
+        self.busy_widgets = [
+            self.db_button,
+            self.restore_button,
+            self.add_folder_button,
+            self.remove_folder_button,
+            self.relink_button,
+            self.moved_button,
+            self.untracked_button,
+            self.display_button,
+        ]
+
+        self._load_settings()
+        self.rekordbox_timer = QTimer(self)
+        self.rekordbox_timer.timeout.connect(self._check_rekordbox)
+        self.rekordbox_timer.start(4000)
+        self._check_rekordbox()
+
+    # ----- settings and state -----
+
+    def _load_settings(self):
+        saved_db = self.settings.value("db_path", "")
+        if saved_db and os.path.exists(saved_db):
+            self.db_path = saved_db
+        else:
+            self.db_path = find_default_database()
+        folders = self.settings.value("music_folders", []) or []
+        if isinstance(folders, str):
+            folders = [folders]
+        for folder in folders:
+            if folder:
+                self.folder_list.addItem(folder)
+        self._update_db_label()
+
+    def _save_settings(self):
+        self.settings.setValue("db_path", self.db_path or "")
+        self.settings.setValue("music_folders", self.music_folders())
+
+    def music_folders(self):
+        return [self.folder_list.item(i).text() for i in range(self.folder_list.count())]
+
+    def _update_db_label(self):
+        if self.db_path:
+            self.db_label.setText(f"Database: {self.db_path}")
+        else:
+            self.db_label.setText("No Rekordbox database found. Choose your master.db.")
+        self.backups_button.setEnabled(bool(self.db_path) and backups_root(self.db_path).exists())
+
+    def _check_rekordbox(self):
+        self.rekordbox_banner.setVisible(is_rekordbox_running())
 
     def closeEvent(self, event):
-        self._stop_worker()
+        if self.thread and self.thread.isRunning():
+            QMessageBox.information(self, "Still working", "Please wait for the current task to finish.")
+            event.ignore()
+            return
+        self._save_settings()
         event.accept()
 
-    def auto_detect_database(self):
-        common_paths = [
-            os.path.expanduser("~/AppData/Roaming/Pioneer/rekordbox/master.db"),
-            os.path.expanduser("~/Library/Application Support/Pioneer/rekordbox/master.db"),
-            os.path.expanduser("~/Pioneer/rekordbox/master.db"),
-        ]
-        for path in common_paths:
-            if os.path.exists(path):
-                self.db_path = path
-                self.db_button.setText(f"Database: {os.path.basename(path)}")
-                self.update_status()
-                break
+    # ----- background work -----
 
-    def select_database(self):
-        default_db = os.path.expanduser("~/AppData/Roaming/Pioneer/rekordbox/master.db")
-        start_dir = os.path.dirname(default_db) if os.path.exists(default_db) else ""
-        if self.db_path and os.path.exists(self.db_path):
-            start_dir = os.path.dirname(self.db_path)
+    def _set_busy(self, busy, text=""):
+        for widget in self.busy_widgets:
+            widget.setEnabled(not busy)
+        self.progress_bar.setVisible(busy)
+        self.progress_bar.setValue(0)
+        self.status_label.setText(text)
 
-        file, _ = QFileDialog.getOpenFileName(
-            self, "Open Rekordbox Database", start_dir, "Database Files (*.db)"
-        )
-        if not file:
-            return
-
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Warning)
-        msg.setText("Please close Rekordbox before continuing.")
-        msg.setInformativeText("The database cannot be modified while Rekordbox is running.")
-        msg.setWindowTitle("Close Rekordbox")
-        msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
-        if msg.exec() == QMessageBox.Cancel:
-            return
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_filename = os.path.basename(file).replace(".db", f"_backup_{timestamp}.db")
-        backup_path = os.path.join(os.path.dirname(file), backup_filename)
-
-        try:
-            shutil.copy2(file, backup_path)
-            self.db_path = file
-            self.last_backup_path = backup_path
-            self.db_button.setText(f"Database: {os.path.basename(file)} (backed up)")
-            self.restore_button.setEnabled(True)
-            self.update_status()
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Failed to create backup: {e}")
-
-    def select_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Music Folder")
-        if folder:
-            self.music_folder = folder
-            self.music_button.setText(f"Music: {os.path.basename(folder)}")
-            self.update_status()
-
-    def update_status(self):
-        parts = []
-        if self.db_path:
-            parts.append(f"Database: {os.path.basename(self.db_path)}")
-        if self.music_folder:
-            parts.append(f"Music: {os.path.basename(self.music_folder)}")
-        self.label.setText(" | ".join(parts) if parts else "Choose files to start...")
-
-    def update_progress(self, current, total):
-        self.progress_bar.setMaximum(total)
-        self.progress_bar.setValue(current)
-        if current < 100:
-            self.label.setText(f"Working... {current}%")
-        else:
-            self.label.setText("Complete!")
-        QApplication.processEvents()
-
-    def _set_busy(self, busy):
-        self.run_button.setEnabled(not busy)
-        self.find_button.setEnabled(not busy)
-        self.update_display_button.setEnabled(not busy)
-        self.db_button.setEnabled(not busy)
-        self.music_button.setEnabled(not busy)
-
-    def _stop_worker(self):
-        if self.thread and self.thread.isRunning():
-            self.thread.quit()
-            self.thread.wait(5000)
-        if self.worker is not None:
-            self.worker.deleteLater()
-        if self.thread is not None:
-            self.thread.deleteLater()
-        self.worker = None
-        self.thread = None
-
-    def _start_worker(self, worker, on_finished):
-        self._stop_worker()
-        self.worker = worker
-        self.thread = QThread()
+    def _run(self, fn, args, on_done, busy_text):
+        self._set_busy(True, busy_text)
+        self._on_done = on_done
+        self.thread = QThread(self)
+        self.worker = Worker(fn, *args)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
-        self.worker.finished.connect(on_finished)
+        self.worker.progress.connect(self._on_progress)
+        self.worker.finished.connect(self._finish)
+        self.worker.failed.connect(self._failed)
         self.worker.finished.connect(self.thread.quit)
-        self.worker.progress.connect(self.update_progress)
+        self.worker.failed.connect(self.thread.quit)
+        self.thread.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
         self.thread.start()
 
+    def _on_progress(self, percent, text):
+        self.progress_bar.setValue(percent)
+        if text:
+            self.status_label.setText(text)
+
+    def _finish(self, result):
+        self._set_busy(False)
+        self.thread = None
+        self.worker = None
+        self._on_done(result)
+
+    def _failed(self, message):
+        self._set_busy(False)
+        self.thread = None
+        self.worker = None
+        self.status_label.setText("Something went wrong.")
+        QMessageBox.critical(
+            self,
+            "Something went wrong",
+            f"{message}\n\nNothing was saved to your library.\n\nDetails are in the log: {log_dir()}",
+        )
+
+    def _require(self, folders=True):
+        if not self.db_path:
+            QMessageBox.warning(self, "No database", "Choose your Rekordbox database (master.db) first.")
+            return False
+        if folders and not self.music_folders():
+            QMessageBox.warning(self, "No music folder", "Add at least one music folder to search.")
+            return False
+        return True
+
+    def _confirm_rekordbox_closed(self):
+        while is_rekordbox_running():
+            answer = QMessageBox.warning(
+                self,
+                "Close Rekordbox",
+                "Rekordbox is running. Close it completely, then click Retry.\n\n"
+                "Changing the library while Rekordbox is open can lose your changes or damage the library.",
+                QMessageBox.Retry | QMessageBox.Cancel,
+            )
+            if answer != QMessageBox.Retry:
+                return False
+        self._check_rekordbox()
+        return True
+
+    # ----- database and folders -----
+
+    def select_database(self):
+        start_dir = os.path.dirname(self.db_path) if self.db_path else ""
+        file, _ = QFileDialog.getOpenFileName(
+            self, "Open Rekordbox database", start_dir, "Rekordbox database (master.db);;Database files (*.db)"
+        )
+        if file:
+            self.db_path = file
+            self._update_db_label()
+            self._save_settings()
+
+    def add_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Add music folder")
+        if not folder:
+            return
+        folder = os.path.normpath(folder)
+        if folder not in self.music_folders():
+            self.folder_list.addItem(folder)
+            self._save_settings()
+
+    def remove_folder(self):
+        for item in self.folder_list.selectedItems():
+            self.folder_list.takeItem(self.folder_list.row(item))
+        self._save_settings()
+
+    def open_backups_folder(self):
+        if self.db_path:
+            _open_folder(backups_root(self.db_path))
+
+    # ----- relink -----
+
     def run_relinker(self):
-        if not self.db_path or not self.music_folder:
-            QMessageBox.warning(self, "Missing Info", "Please select database and music folder.")
+        if self._require():
+            self._run(scan_library, (self.db_path, self.music_folders()), self._review_plan, "Scanning...")
+
+    def folder_moved(self):
+        if self._require(folders=False):
+            self._run(missing_tracks, (self.db_path,), self._ask_folder_move, "Reading the library...")
+
+    def _ask_folder_move(self, missing):
+        if not missing:
+            self._report_nothing_missing()
             return
+        dialog = FolderMovedDialog(suggest_moved_prefix(missing), self)
+        if dialog.exec():
+            self._run(
+                scan_folder_move,
+                (self.db_path, dialog.old_prefix, dialog.new_prefix),
+                self._review_plan,
+                "Checking files...",
+            )
 
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self.results_area.setVisible(False)
-        self._set_busy(True)
-        self._start_worker(
-            RelinkWorker(self.db_path, self.music_folder),
-            self.show_result,
-        )
+    def _report_nothing_missing(self):
+        self.status_label.setText("Nothing to relink.")
+        QMessageBox.information(self, "Nothing to relink", "Every track points to a file that exists.")
 
-    def find_untracked(self):
-        if not self.db_path or not self.music_folder:
-            QMessageBox.warning(self, "Missing Info", "Please select database and music folder.")
+    def _review_plan(self, plan):
+        self.status_label.setText("")
+        if plan.missing_total == 0:
+            if plan.total_tracks and plan.ok_tracks == plan.total_tracks - plan.non_file_tracks:
+                self._report_nothing_missing()
+            else:
+                QMessageBox.information(self, "No matches", "No missing tracks were found in that folder.")
             return
+        lines = [
+            f"Tracks in library: {plan.total_tracks:,}",
+            f"Missing files: {plan.missing_total:,}",
+            f"Proposed matches: {len(plan.matches):,}",
+            f"Still missing: {len(plan.missing):,}",
+        ]
+        if plan.scan_errors:
+            lines.append(f"Folders or files that could not be read: {len(plan.scan_errors):,} (see the log)")
+        self.results_area.setPlainText("\n".join(lines))
 
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self.results_area.setVisible(False)
-        self._set_busy(True)
-        self._start_worker(
-            UntrackedFilesWorker(self.db_path, self.music_folder),
-            self.show_untracked_files,
-        )
+        dialog = PreviewDialog(plan, parent=self)
+        if not dialog.exec():
+            self.status_label.setText("Cancelled. Nothing was changed.")
+            return
+        changes = dialog.selected_changes()
+        if changes and self._confirm_rekordbox_closed():
+            self._run(apply_relinks, (self.db_path, changes), self._relink_done, "Relinking...")
+
+    def _relink_done(self, result):
+        self._show_apply_result(result, "Relinked", "track(s)")
+
+    def _show_apply_result(self, result, verb, noun):
+        self.last_backup = result.backup
+        self._update_db_label()
+        lines = [f"{verb} {len(result.applied):,} {noun}.", f"Backup: {result.backup.path}", ""]
+        if result.skipped:
+            lines.append(f"Skipped {len(result.skipped):,}:")
+            lines += [f"  {track.label}: {reason}" for track, reason in result.skipped]
+            lines.append("")
+        if result.warnings:
+            lines.append(f"Warnings ({len(result.warnings):,}):")
+            lines += [f"  {w}" for w in result.warnings]
+            lines.append("")
+        lines += [f"{c.old_path}  ->  {c.new_path}" for c in result.applied]
+        self.results_area.setPlainText("\n".join(lines))
+        self.status_label.setText(f"{verb} {len(result.applied):,} {noun}.")
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Done")
+        box.setIcon(QMessageBox.Warning if result.warnings or result.skipped else QMessageBox.Information)
+        box.setText(f"{verb} {len(result.applied):,} {noun}.")
+        info = "A backup was saved first. Use Restore a backup if anything looks wrong."
+        if result.skipped or result.warnings:
+            info = (
+                f"{len(result.skipped):,} skipped, {len(result.warnings):,} warning(s). "
+                "See the results list for details.\n\n" + info
+            )
+        box.setInformativeText(info)
+        open_button = box.addButton("Open backup folder", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec()
+        if box.clickedButton() == open_button:
+            _open_folder(result.backup.path)
+
+    # ----- display names -----
 
     def update_display_names(self):
-        if not self.db_path:
-            QMessageBox.warning(self, "Missing Database", "Please select a Rekordbox database first.")
-            return
+        if self._require(folders=False):
+            self._run(plan_display_names, (self.db_path,), self._review_display_names, "Checking display names...")
 
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Information)
-        msg.setText("This will update display filenames only.")
-        msg.setInformativeText("File paths will not be changed. Continue?")
-        msg.setWindowTitle("Fix Display Names")
-        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        if msg.exec() != QMessageBox.Yes:
+    def _review_display_names(self, changes):
+        if not changes:
+            self.status_label.setText("All display names already match their files.")
+            QMessageBox.information(self, "Nothing to fix", "All display names already match their files.")
             return
-
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self.results_area.setVisible(False)
-        self._set_busy(True)
-        self._start_worker(
-            UpdateDisplayFilenamesWorker(self.db_path),
-            self.show_display_update_result,
+        box = QMessageBox(self)
+        box.setWindowTitle("Fix display names")
+        box.setIcon(QMessageBox.Question)
+        box.setText(f"{len(changes):,} track(s) show a different file name than the actual file.")
+        box.setInformativeText(
+            "Update the File Name column to match? File paths are not changed, and a backup is made first. "
+            "Click Show Details to see every change."
         )
-
-    def show_result(self, stats):
-        self.progress_bar.setVisible(False)
-        self._set_busy(False)
-        self.update_status()
-        self._stop_worker()
-
-        if "error" in stats:
-            QMessageBox.critical(self, "Error", f"An error occurred:\n\n{stats['error']}")
-            return
-
-        QMessageBox.information(
-            self,
-            "Done",
-            (
-                "Processing complete!\n\n"
-                f"Tracks in database: {stats['total_tracks']}\n"
-                f"Music files found: {stats['total_music_files']}\n"
-                f"Tracks relinked: {stats['updated_tracks']}\n"
-            ),
+        box.setDetailedText(
+            "\n".join(f"{c.track.display_name or '(empty)'}  ->  {c.new_path}" for c in changes)
         )
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        if box.exec() == QMessageBox.Yes and self._confirm_rekordbox_closed():
+            self._run(apply_display_names, (self.db_path, changes), self._display_done, "Updating display names...")
 
-    def show_display_update_result(self, stats):
-        self.progress_bar.setVisible(False)
-        self._set_busy(False)
-        self.update_status()
-        self._stop_worker()
+    def _display_done(self, result):
+        self._show_apply_result(result, "Updated", "display name(s)")
 
-        if "error" in stats:
-            QMessageBox.critical(self, "Error", f"An error occurred:\n\n{stats['error']}")
-            return
+    # ----- untracked files -----
 
-        QMessageBox.information(
-            self,
-            "Done",
-            (
-                "Display names updated!\n\n"
-                f"Tracks checked: {stats['total_tracks']}\n"
-                f"Filenames updated: {stats['updated_filenames']}\n"
-            ),
-        )
+    def find_untracked(self):
+        if self._require():
+            self._run(
+                find_untracked_files,
+                (self.db_path, self.music_folders()),
+                self._show_untracked,
+                "Looking for files not in Rekordbox...",
+            )
 
-    def show_untracked_files(self, files):
-        self.progress_bar.setVisible(False)
-        self._set_busy(False)
-        self.update_status()
-        self._stop_worker()
-        self.results_area.setVisible(True)
-
+    def _show_untracked(self, files):
         if not files:
-            self.results_area.setText("No untracked files found.")
-            QMessageBox.information(
-                self,
-                "No Untracked Files",
-                "All music files in the selected folder are already in Rekordbox.",
-            )
+            self.results_area.setPlainText("Every music file in these folders is already in Rekordbox.")
+            self.status_label.setText("No untracked files.")
+            QMessageBox.information(self, "Nothing found", "Every music file in these folders is already in Rekordbox.")
             return
+        self.status_label.setText(f"Found {len(files):,} file(s) not in Rekordbox.")
+        self.results_area.setPlainText(f"{len(files):,} file(s) not in Rekordbox:\n\n" + "\n".join(files))
 
-        self.results_area.setText(
-            f"Found {len(files)} untracked files:\n\n" + "\n".join(files)
+        box = QMessageBox(self)
+        box.setWindowTitle("Files not in Rekordbox")
+        box.setText(f"Found {len(files):,} music file(s) that are not in your Rekordbox library.")
+        box.setInformativeText(
+            "Save them as a playlist to import into Rekordbox (File > Import > Import Playlist), "
+            "save a plain list, or copy the files somewhere."
         )
+        playlist_button = box.addButton("Save as playlist (.m3u8)", QMessageBox.ActionRole)
+        list_button = box.addButton("Save list (.txt)", QMessageBox.ActionRole)
+        copy_button = box.addButton("Copy files...", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Close)
+        box.exec()
 
-        msg_box = QMessageBox()
-        msg_box.setWindowTitle("Untracked Files")
-        msg_box.setText(f"Found {len(files)} music files not in your Rekordbox database.")
-        msg_box.setInformativeText("What would you like to do with these files?")
-        save_list_button = msg_box.addButton("Save List to File", QMessageBox.ActionRole)
-        copy_files_button = msg_box.addButton("Copy Files to Folder", QMessageBox.ActionRole)
-        msg_box.addButton(QMessageBox.Cancel)
-        msg_box.exec()
-
-        if msg_box.clickedButton() == save_list_button:
-            save_path, _ = QFileDialog.getSaveFileName(
-                self, "Save Untracked Files List", "", "Text Files (*.txt)"
-            )
-            if save_path:
-                with open(save_path, "w", encoding="utf-8") as handle:
-                    handle.write("\n".join(files))
-                QMessageBox.information(
-                    self, "List Saved", f"Saved {len(files)} paths to {save_path}"
-                )
-        elif msg_box.clickedButton() == copy_files_button:
+        clicked = box.clickedButton()
+        if clicked == playlist_button:
+            path, _ = QFileDialog.getSaveFileName(self, "Save playlist", "not-in-rekordbox.m3u8", "Playlist (*.m3u8)")
+            if path:
+                write_m3u8(path, files)
+                self.status_label.setText(f"Saved playlist with {len(files):,} file(s) to {path}")
+        elif clicked == list_button:
+            path, _ = QFileDialog.getSaveFileName(self, "Save list", "not-in-rekordbox.txt", "Text files (*.txt)")
+            if path:
+                write_text_list(path, files)
+                self.status_label.setText(f"Saved {len(files):,} path(s) to {path}")
+        elif clicked == copy_button:
             self._copy_untracked_files(files)
 
     def _copy_untracked_files(self, files):
-        target_dir = QFileDialog.getExistingDirectory(
-            self, "Select Destination Folder for Untracked Files"
-        )
+        target_dir = QFileDialog.getExistingDirectory(self, "Copy files to")
         if not target_dir:
             return
 
-        structure_msg = QMessageBox()
-        structure_msg.setWindowTitle("Copy Structure")
-        structure_msg.setText("How would you like to copy the files?")
-        flat_button = structure_msg.addButton("Flat (all files in one folder)", QMessageBox.ActionRole)
-        structure_button = structure_msg.addButton(
-            "Preserve structure (maintain subfolders)", QMessageBox.ActionRole
-        )
-        structure_msg.exec()
-        preserve_structure = structure_msg.clickedButton() == structure_button
+        structure = QMessageBox(self)
+        structure.setWindowTitle("Copy files")
+        structure.setText("How should the files be copied?")
+        flat_button = structure.addButton("All in one folder", QMessageBox.ActionRole)
+        keep_button = structure.addButton("Keep subfolders", QMessageBox.ActionRole)
+        structure.addButton(QMessageBox.Cancel)
+        structure.exec()
+        if structure.clickedButton() not in (flat_button, keep_button):
+            return
+        keep_structure = structure.clickedButton() == keep_button
 
         progress = QProgressDialog("Copying files...", "Cancel", 0, len(files), self)
-        progress.setWindowTitle("Copy Progress")
+        progress.setWindowTitle("Copying")
         progress.setWindowModality(Qt.WindowModal)
         progress.show()
 
-        copied = 0
-        errors = []
+        folders = self.music_folders()
+        copied, skipped, errors = 0, 0, []
         for i, file_path in enumerate(files):
             if progress.wasCanceled():
                 break
             progress.setValue(i)
             try:
-                if preserve_structure and self.music_folder and file_path.startswith(self.music_folder):
-                    dest_path = os.path.join(target_dir, os.path.relpath(file_path, self.music_folder))
-                    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                base = next((f for f in folders if os.path.normcase(file_path).startswith(os.path.normcase(f))), None)
+                if keep_structure and base:
+                    dest_path = os.path.join(target_dir, os.path.relpath(file_path, base))
                 else:
                     dest_path = os.path.join(target_dir, os.path.basename(file_path))
+                if os.path.exists(dest_path):
+                    skipped += 1
+                    continue
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                 shutil.copy2(file_path, dest_path)
                 copied += 1
-            except Exception as e:
+            except OSError as e:
                 errors.append(f"{file_path}: {e}")
-
         progress.setValue(len(files))
+
+        message = f"Copied {copied:,} of {len(files):,} file(s) to {target_dir}."
+        if skipped:
+            message += f"\n{skipped:,} already existed there and were not overwritten."
         if errors:
             preview = "\n".join(errors[:10])
-            extra = f"\n... and {len(errors) - 10} more errors." if len(errors) > 10 else ""
-            QMessageBox.warning(
-                self,
-                "Copy Complete with Errors",
-                f"Copied {copied} of {len(files)} files.\n\n{preview}{extra}",
-            )
+            extra = f"\n...and {len(errors) - 10:,} more." if len(errors) > 10 else ""
+            QMessageBox.warning(self, "Copied with errors", f"{message}\n\n{preview}{extra}")
         else:
-            QMessageBox.information(
-                self, "Copy Complete", f"Successfully copied {copied} files to {target_dir}"
-            )
+            QMessageBox.information(self, "Copied", message)
+
+    # ----- restore -----
 
     def restore_backup(self):
-        if not self.db_path:
-            QMessageBox.warning(self, "No Database Selected", "Please select a database first.")
+        if not self._require(folders=False):
             return
-
-        use_last = False
-        if self.last_backup_path and os.path.exists(self.last_backup_path):
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Question)
-            msg.setText("Use most recent backup or select another?")
-            msg.setInformativeText(f"Most recent backup: {os.path.basename(self.last_backup_path)}")
-            most_recent = msg.addButton("Use Most Recent", QMessageBox.ActionRole)
-            select_another = msg.addButton("Select Another", QMessageBox.ActionRole)
-            cancel = msg.addButton(QMessageBox.Cancel)
-            msg.exec()
-            if msg.clickedButton() == cancel:
-                return
-            use_last = msg.clickedButton() == most_recent
-
-        backup_path = self.last_backup_path if use_last else None
-        if not use_last:
-            backup_path, _ = QFileDialog.getOpenFileName(
-                self,
-                "Select Backup File",
-                os.path.dirname(self.db_path),
-                "Database Files (*.db)",
-            )
-            if not backup_path:
-                return
-
-        msg = QMessageBox()
-        msg.setIcon(QMessageBox.Warning)
-        msg.setText("Restoring will overwrite the current database.")
-        msg.setInformativeText(f"Restore from:\n{os.path.basename(backup_path)}?")
-        msg.setWindowTitle("Confirm Database Restore")
-        msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        if msg.exec() != QMessageBox.Yes:
+        dialog = RestoreDialog(list_backups(self.db_path), os.path.dirname(self.db_path), self)
+        if not dialog.exec() or not dialog.selected:
             return
+        backup = dialog.selected
+        answer = QMessageBox.warning(
+            self,
+            "Restore backup",
+            f"Replace your current Rekordbox library with this backup?\n\n{backup.title}\n\n"
+            "Your current library is backed up first, so this can be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if answer == QMessageBox.Yes and self._confirm_rekordbox_closed():
+            self._run(self._restore, (backup,), self._restore_done, "Restoring...")
 
+    def _restore(self, backup, progress=None):
+        return restore_backup(self.db_path, backup)
+
+    def _restore_done(self, safety):
+        self._update_db_label()
+        self.status_label.setText("Backup restored.")
+        self.results_area.setPlainText(f"Backup restored.\nYour library from before the restore was saved in:\n{safety.path}")
         QMessageBox.information(
             self,
-            "Close Rekordbox",
-            "Make sure Rekordbox is closed before restoring.",
+            "Restored",
+            f"The backup was restored.\n\nYour library from before the restore was saved in:\n{safety.path}",
         )
-
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            pre_restore_backup = os.path.join(
-                os.path.dirname(self.db_path),
-                f"pre_restore_{os.path.basename(self.db_path).replace('.db', '')}_{timestamp}.db",
-            )
-            shutil.copy2(self.db_path, pre_restore_backup)
-            shutil.copy2(backup_path, self.db_path)
-            self.db_button.setText(f"Database: {os.path.basename(self.db_path)}")
-            self.update_status()
-            QMessageBox.information(
-                self,
-                "Restore Complete",
-                (
-                    f"Restored from {os.path.basename(backup_path)}.\n\n"
-                    f"Previous database saved as {os.path.basename(pre_restore_backup)}."
-                ),
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to restore database: {e}")

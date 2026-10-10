@@ -1,7 +1,7 @@
 import numpy as np
 
 from relinkbox.analysis import BeatGrid, Waveform, onset_offset
-from relinkbox.cues import CueInfo, TrackCueReport, Verdict, analyse, frames, mp3_offset_ms
+from relinkbox.cues import CueInfo, TrackCueReport, Verdict, analyse, display_cues, frames, mp3_offset_ms
 
 
 def grid(bpm=128.0, beats=400, first=50.0):
@@ -124,6 +124,47 @@ def test_frames_are_rounded_down():
     assert frames(1000) == 150
     assert frames(1006) == 150
     assert frames(1007) == 151
+
+
+def test_cue_letter_is_badge_text():
+    from relinkbox.gui.waveform import cue_letter
+
+    assert cue_letter(CueInfo(id="1", kind=0, in_ms=0)) == "M"
+    assert cue_letter(CueInfo(id="2", kind=1, in_ms=0)) == "A"
+
+
+def test_bake_waveform_makes_a_picture():
+    from relinkbox.gui.waveform import bake_waveform
+
+    bands = np.zeros((1200, 3), dtype=np.int16)
+    bands[100:180, 0] = 24
+    bands[100:180, 1] = 16
+    picture = bake_waveform(bands, 180000, 400, 80)
+    assert picture is not None
+    assert picture.image.width() == 400
+    assert picture.image.height() == 80
+    assert picture.duration_ms == 180000
+
+
+def test_cue_colors_follow_rekordbox_tables():
+    from relinkbox.gui.waveform import cue_color
+
+    memory = CueInfo(id="1", kind=0, in_ms=0, color=1)
+    hot = CueInfo(id="2", kind=1, in_ms=0, color_index=43)
+    assert cue_color(memory).getRgb()[:3] == (222, 68, 207)
+    assert cue_color(hot).getRgb()[:3] == (0xFF, 0x37, 0x6F)
+
+
+def test_display_cues_collapses_duplicate_memory_cues():
+    cues = [
+        CueInfo(id="1", kind=0, in_ms=1000),
+        CueInfo(id="2", kind=0, in_ms=1000),
+        CueInfo(id="3", kind=1, in_ms=1000),
+        CueInfo(id="4", kind=0, in_ms=2000),
+    ]
+    shown = display_cues(cues)
+    assert [c.id for c in shown] == ["1", "3", "4"]
+    assert shown[0].label == "Memory ×2"
 
 
 def test_onset_offset_finds_hits_relative_to_grid():

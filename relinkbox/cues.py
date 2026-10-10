@@ -52,11 +52,14 @@ class CueInfo:
     out_ms: int = -1
     comment: str = ""
     mpeg: bool = False
+    color: int = -1  # memory cue Color 1-8, or -1
+    color_index: int = 0  # hot cue ColorTableIndex
+    copies: int = 1
 
     @property
     def label(self):
         if self.kind == 0:
-            return "Memory"
+            return "Memory" if self.copies == 1 else f"Memory ×{self.copies}"
         return HOT_CUE_LETTERS.get(self.kind, f"Hot cue {self.kind}")
 
     @property
@@ -72,6 +75,8 @@ class TrackCueReport:
     path: str
     sample_rate: int
     cues: list
+    bit_rate: int = 0
+    genre: str = ""
     verdict: str = Verdict.ON_GRID
     reason: str = ""
     offset: float = None  # shared cue-to-beat distance in ms, negative = cues early
@@ -81,6 +86,7 @@ class TrackCueReport:
     proposed: dict = field(default_factory=dict)  # cue id -> (new_in_ms, new_out_ms)
     dat_path: str = None
     ext_path: str = None
+    twoex_path: str = None
 
     @property
     def label(self):
@@ -99,6 +105,22 @@ class TrackCueReport:
     @property
     def selected_by_default(self):
         return self.verdict == Verdict.CUES_WRONG and bool(self.proposed)
+
+
+def display_cues(cues):
+    """One row per hot cue, and one memory cue per timestamp (Rekordbox often stores copies)."""
+    shown = []
+    memory = {}
+    for cue in cues:
+        if cue.kind == 0:
+            existing = memory.get(cue.in_ms)
+            if existing:
+                existing.copies += 1
+                continue
+            memory[cue.in_ms] = cue
+            cue.copies = 1
+        shown.append(cue)
+    return shown
 
 
 def mp3_offset_ms(sample_rate):
@@ -199,9 +221,9 @@ def _cue_rows(db):
     rows = {}
     query = db.session.query(
         DjmdCue.ID, DjmdCue.ContentID, DjmdCue.Kind, DjmdCue.InMsec, DjmdCue.OutMsec,
-        DjmdCue.Comment, DjmdCue.InMpegAbs, DjmdCue.InMpegFrame,
+        DjmdCue.Comment, DjmdCue.InMpegAbs, DjmdCue.InMpegFrame, DjmdCue.Color, DjmdCue.ColorTableIndex,
     )
-    for cue_id, content_id, kind, in_ms, out_ms, comment, mpeg_abs, mpeg_frame in query:
+    for cue_id, content_id, kind, in_ms, out_ms, comment, mpeg_abs, mpeg_frame, color, color_index in query:
         if in_ms is None or content_id is None:
             continue
         rows.setdefault(str(content_id), []).append(
@@ -212,6 +234,8 @@ def _cue_rows(db):
                 out_ms=out_ms if out_ms is not None else -1,
                 comment=comment or "",
                 mpeg=bool(mpeg_abs or mpeg_frame),
+                color=-1 if color is None else color,
+                color_index=color_index or 0,
             )
         )
     return rows
@@ -225,8 +249,12 @@ def scan_cues(db_path, progress=None):
     try:
         _report(progress, 5, "Reading cue points...")
         cues_by_track = _cue_rows(db)
-        from pyrekordbox.db6.tables import DjmdContent
+        from pyrekordbox.db6.tables import DjmdContent, DjmdGenre
 
+        try:
+            genre_names = {str(row.ID): row.Name or "" for row in db.session.query(DjmdGenre).all()}
+        except Exception:
+            genre_names = {}
         contents = db.session.query(DjmdContent).filter(DjmdContent.ID.in_(list(cues_by_track))).all()
         reports = []
         total = len(contents)
@@ -243,22 +271,25 @@ def scan_cues(db_path, progress=None):
                 artist=artist,
                 path=content.FolderPath or "",
                 sample_rate=content.SampleRate or 0,
+                bit_rate=int(content.BitRate or 0),
+                genre=genre_names.get(str(content.GenreID), "") if content.GenreID else "",
                 cues=sorted(cues_by_track[str(content.ID)], key=lambda c: c.in_ms),
             )
-            dat, ext = anlz_paths(share, content.AnalysisDataPath)
+            dat, ext, twoex = anlz_paths(share, content.AnalysisDataPath)
             report.dat_path = str(dat) if dat else None
             report.ext_path = str(ext) if ext else None
+            report.twoex_path = str(twoex) if twoex else None
             try:
                 grid = read_beat_grid(dat) if dat else None
             except Exception as e:
                 log.warning("Could not read the beat grid of %s: %s", report.path, e)
                 grid = None
 
-            def hits(grid=grid, ext=ext, path=report.path):
-                if not ext:
+            def hits(grid=grid, ext=ext, twoex=twoex, path=report.path):
+                if not ext and not twoex:
                     return None
                 try:
-                    return onset_offset(grid, read_waveform(ext))
+                    return onset_offset(grid, read_waveform(ext, twoex))
                 except Exception as e:
                     log.warning("Could not read the waveform of %s: %s", path, e)
                     return None

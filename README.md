@@ -80,7 +80,7 @@ For each track with cues it:
 4. Checks the waveform to see whether the drum hits line up with the grid or with the cues.
 5. Leaves cues that do not share the offset alone (those were probably placed off the grid on purpose).
 
-Tracks marked **Cues off grid** are ticked for you. You can play the track, click the waveform, and press a cue button. If the picture is unclear, mark **The cues are right** or **The grid is right** before snapping. **Snap selected** moves the matching cues onto the beat (and the loop end by the same amount), after a backup. VBR MP3 cues that store a byte offset are left alone.
+Tracks marked **Cues off grid** are ticked for you. The overview uses Rekordbox's 3-band waveform when a `.2EX` analysis file exists (scroll to zoom, shift-drag to pan). Click the waveform or a cue button to play from that point. If the picture is unclear, mark **The cues are right** or **The grid is right** before snapping. **Snap selected** moves the matching cues onto the beat (and the loop end by the same amount), after a backup. VBR MP3 cues that store a byte offset are left alone.
 
 A shift with no known cause is only offered automatically when it is under 80 ms and under a quarter of a beat at that track's tempo. Larger or mixed offsets stay in **Check manually**.
 

@@ -1,6 +1,6 @@
 import logging
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
 log = logging.getLogger(__name__)
 
@@ -27,11 +27,16 @@ class Worker(QObject):
         self.finished.emit(result)
 
 
-class TaskRunner:
-    """One background task at a time. set_busy(busy, text) is called around the run."""
+class TaskRunner(QObject):
+    """One background task at a time. Results always come back on the UI thread.
+
+    TaskRunner itself is a QObject so progress/finished/failed are queued. A plain
+    Python callback connected to a worker signal runs on the worker thread, which
+    is what produced the timer errors and the freeze after a cue scan.
+    """
 
     def __init__(self, parent, set_busy, on_progress, on_failed):
-        self.parent = parent
+        super().__init__(parent)
         self._set_busy = set_busy
         self._on_progress = on_progress
         self._on_failed = on_failed
@@ -48,13 +53,13 @@ class TaskRunner:
             return False
         self._set_busy(True, busy_text)
         self._on_done = on_done
-        self.thread = QThread(self.parent)
+        self.thread = QThread(self)
         self.worker = Worker(fn, *args)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
-        self.worker.progress.connect(self._on_progress)
-        self.worker.finished.connect(self._finish)
-        self.worker.failed.connect(self._failed)
+        self.worker.progress.connect(self._progress, Qt.QueuedConnection)
+        self.worker.finished.connect(self._finish, Qt.QueuedConnection)
+        self.worker.failed.connect(self._failed, Qt.QueuedConnection)
         self.worker.finished.connect(self.thread.quit)
         self.worker.failed.connect(self.thread.quit)
         self.thread.finished.connect(self.worker.deleteLater)
@@ -62,6 +67,11 @@ class TaskRunner:
         self.thread.start()
         return True
 
+    @Slot(int, str)
+    def _progress(self, percent, text):
+        self._on_progress(percent, text)
+
+    @Slot(object)
     def _finish(self, result):
         self._set_busy(False)
         self.thread = None
@@ -71,6 +81,7 @@ class TaskRunner:
         if done:
             done(result)
 
+    @Slot(str)
     def _failed(self, message):
         self._set_busy(False)
         self.thread = None

@@ -10,18 +10,19 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QProgressDialog,
     QPushButton,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from relinkbox import __version__
 from relinkbox.backup import backups_root, list_backups, restore_backup
-from relinkbox.gui.cue_manager import CueManagerWindow
 from relinkbox.gui.dialogs import FolderMovedDialog, RestoreDialog
 from relinkbox.gui.preview import PreviewDialog
 from relinkbox.gui.workers import TaskRunner
@@ -83,9 +84,14 @@ class MainWindow(QMainWindow):
         self.db_button.clicked.connect(self.select_database)
         self.restore_button = QPushButton("Restore a backup...")
         self.restore_button.clicked.connect(self.restore_backup)
-        self.backups_button = QPushButton("Open backups folder")
-        self.backups_button.clicked.connect(self.open_backups_folder)
-        for button in (self.db_button, self.restore_button, self.backups_button):
+        self.folders_button = QToolButton()
+        self.folders_button.setText("Open folder")
+        self.folders_button.setPopupMode(QToolButton.InstantPopup)
+        folders_menu = QMenu(self.folders_button)
+        folders_menu.addAction("Rekordbox folder", self.open_rekordbox_folder)
+        folders_menu.addAction("Backups folder", self.open_backups_folder)
+        self.folders_button.setMenu(folders_menu)
+        for button in (self.db_button, self.restore_button, self.folders_button):
             db_buttons.addWidget(button)
         db_buttons.addStretch(1)
         db_layout.addLayout(db_buttons)
@@ -123,21 +129,29 @@ class MainWindow(QMainWindow):
         self.display_button = QPushButton("Fix display names")
         self.display_button.setToolTip("Makes the File Name column match the actual file. Paths are not changed.")
         self.display_button.clicked.connect(self.update_display_names)
-        self.cues_button = QPushButton("Check cue points...")
-        self.cues_button.setToolTip(
-            "Find cue points that sit off the beat grid, show them on the waveform, and snap them back."
-        )
-        self.cues_button.clicked.connect(self.open_cue_manager)
         row1 = QHBoxLayout()
         row1.addWidget(self.relink_button, 2)
         row1.addWidget(self.moved_button, 1)
         row2 = QHBoxLayout()
         row2.addWidget(self.untracked_button)
         row2.addWidget(self.display_button)
-        row2.addWidget(self.cues_button)
         actions.addLayout(row1)
         actions.addLayout(row2)
         layout.addWidget(actions_box)
+
+        cue_box = QGroupBox("Cue points")
+        cue_layout = QVBoxLayout(cue_box)
+        self.cues_button = QPushButton("Check cue points...")
+        self.cues_button.setMinimumHeight(36)
+        self.cues_button.setToolTip(
+            "Opens a separate window to find cue points that sit off the beat grid and snap them back."
+        )
+        self.cues_button.clicked.connect(self.open_cue_manager)
+        cue_layout.addWidget(self.cues_button)
+        cue_hint = QLabel("A separate tool. It does not relink files.")
+        cue_hint.setStyleSheet("color: #666;")
+        cue_layout.addWidget(cue_hint)
+        layout.addWidget(cue_box)
 
         self.status_label = QLabel()
         layout.addWidget(self.status_label)
@@ -205,7 +219,7 @@ class MainWindow(QMainWindow):
             self.db_label.setText(f"Database: {self.db_path}")
         else:
             self.db_label.setText("No Rekordbox database found. Choose your master.db.")
-        self.backups_button.setEnabled(bool(self.db_path) and backups_root(self.db_path).exists())
+        self.folders_button.setEnabled(bool(self.db_path))
 
     def _check_rekordbox(self):
         self.rekordbox_banner.setVisible(is_rekordbox_running())
@@ -228,6 +242,8 @@ class MainWindow(QMainWindow):
         self.status_label.setText(text)
 
     def _run(self, fn, args, on_done, busy_text):
+        if self.cue_window is not None:
+            self.cue_window._release_player()
         self.tasks.run(fn, args, on_done, busy_text)
 
     def _on_progress(self, percent, text):
@@ -246,6 +262,8 @@ class MainWindow(QMainWindow):
     def open_cue_manager(self):
         if not self._require(folders=False):
             return
+        from relinkbox.gui.cue_manager import CueManagerWindow
+
         if self.cue_window is None:
             self.cue_window = CueManagerWindow(self.db_path, self)
         self.cue_window.db_path = self.db_path
@@ -305,6 +323,10 @@ class MainWindow(QMainWindow):
     def open_backups_folder(self):
         if self.db_path:
             _open_folder(backups_root(self.db_path))
+
+    def open_rekordbox_folder(self):
+        if self.db_path:
+            _open_folder(os.path.dirname(self.db_path))
 
     # ----- relink -----
 

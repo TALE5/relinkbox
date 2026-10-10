@@ -38,12 +38,17 @@ def _section(data, fourcc):
 
 
 def anlz_paths(share_dir, analysis_data_path):
-    """Paths of the .DAT and .EXT files for a track's AnalysisDataPath, or None where missing."""
+    """Local .DAT, .EXT and .2EX paths for a track, or None where missing."""
     if not analysis_data_path:
-        return None, None
+        return None, None, None
     dat = Path(share_dir) / analysis_data_path.strip("\\/")
     ext = dat.with_suffix(".EXT")
-    return (dat if dat.is_file() else None), (ext if ext.is_file() else None)
+    twoex = dat.with_suffix(".2EX")
+    return (
+        dat if dat.is_file() else None,
+        ext if ext.is_file() else None,
+        twoex if twoex.is_file() else None,
+    )
 
 
 @dataclass
@@ -99,6 +104,8 @@ def read_beat_grid(dat_path):
 class Waveform:
     heights: np.ndarray  # 0-31, one point per 1/150 s
     colors: np.ndarray  # (n, 3) RGB, 0-255
+    bands: np.ndarray = None  # PWV7 detail (n, 3) low/mid/high
+    overview: np.ndarray = None  # PWV6 whole-track preview, usually 1200 columns
 
     def index(self, t):
         return int(t * WAVEFORM_POINTS_PER_SECOND / 1000)
@@ -107,9 +114,8 @@ class Waveform:
         return i * 1000 / WAVEFORM_POINTS_PER_SECOND
 
 
-def read_waveform(ext_path):
-    """The PWV5 colour detail waveform from an .EXT file, or None."""
-    data = Path(ext_path).read_bytes()
+def _read_pwv5(path):
+    data = Path(path).read_bytes()
     found = _section(data, "PWV5")
     if not found:
         return None
@@ -119,7 +125,55 @@ def read_waveform(ext_path):
     raw = np.frombuffer(data, dtype=">u2", count=count, offset=start + len_header).astype(np.int32)
     heights = (raw >> 2) & 0x1F
     colors = np.stack([(raw >> 13) & 7, (raw >> 10) & 7, (raw >> 7) & 7], axis=1) * 36
-    return Waveform(heights=heights, colors=colors.astype(np.uint8))
+    return heights, colors.astype(np.uint8)
+
+
+def _read_band_tag(path, fourcc):
+    """3-byte columns [low, mid, high] from a PWV6 or PWV7 tag."""
+    data = Path(path).read_bytes()
+    found = _section(data, fourcc)
+    if not found:
+        return None
+    start, len_header, len_tag = found
+    count = int.from_bytes(data[start + 16 : start + 20], "big")
+    available = max(0, len_tag - len_header)
+    count = min(count, available // 3) if count else available // 3
+    if count < 1:
+        return None
+    raw = np.frombuffer(data, dtype=np.uint8, count=count * 3, offset=start + len_header)
+    return raw.reshape(-1, 3).astype(np.int16)
+
+
+def _read_three_band(path):
+    """PWV7 detail: 150 columns/sec. Not the 1200-column PWV6 overview."""
+    return _read_band_tag(path, "PWV7")
+
+
+def read_waveform(ext_path, twoex_path=None):
+    """Colour detail waveform, plus Rekordbox 3-band overview/detail when a .2EX exists."""
+    color = _read_pwv5(ext_path) if ext_path else None
+    bands = None
+    overview = None
+    if twoex_path:
+        try:
+            bands = _read_band_tag(twoex_path, "PWV7")
+        except Exception:
+            bands = None
+        try:
+            overview = _read_band_tag(twoex_path, "PWV6")
+        except Exception:
+            overview = None
+    if color is None and bands is None and overview is None:
+        return None
+    if bands is not None:
+        heights = bands.max(axis=1)
+        colors = color[1] if color is not None and len(color[1]) == len(heights) else np.zeros((len(heights), 3), dtype=np.uint8)
+        return Waveform(heights=heights, colors=colors, bands=bands, overview=overview)
+    if color is not None:
+        heights, colors = color
+        return Waveform(heights=heights, colors=colors, overview=overview)
+    heights = overview.max(axis=1)
+    return Waveform(heights=heights, colors=np.zeros((len(heights), 3), dtype=np.uint8), overview=overview)
 
 
 def onset_offset(grid, waveform):

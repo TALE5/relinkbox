@@ -39,10 +39,13 @@ Rekordbox’s own relocate feature only lets you relink tracks one by one, or "a
 I like coherency in my file system, and with that i want to keep a specific file naming system for my music. Once i learnt about tools like OneTagger i already had thousands of files that dearly needed a metadata fixup.
 
 ## What you can do
+<img width="823" height="960" alt="image" src="https://github.com/user-attachments/assets/67dac0af-c481-486a-b4e6-dccb39f2fdc9" />
 
 All four jobs on the main window only look until you confirm. A yellow banner appears while Rekordbox is running. Saving is refused until it is fully closed.
 
+---
 ### Scan for missing tracks
+<img width="1350" height="652" alt="image" src="https://github.com/user-attachments/assets/e110c156-5e75-45bb-8fbc-159b86fc4f05" />
 
 Looks through the music folders you added and proposes a file for every track whose path no longer exists. Tracks that already point at a real file are left alone. Streaming and cloud entries (SoundCloud, Beatport, and anything else stored as a link rather than a drive path) are skipped.
 
@@ -53,11 +56,15 @@ A review window then lists:
 
 From that window you can export the full report or just the missing tracks as CSV (UTF-8, so Excel keeps accented names). Confirming asks once more, and tells you if any of the ticked rows are low confidence. A backup is made, the changes are written, and Relinkbox re-opens the database to check that each new path is actually there.
 
+---
 ### A whole folder or drive letter changed
+<img width="624" height="242" alt="image" src="https://github.com/user-attachments/assets/fa6af211-c054-4fd9-b1e7-df32444f376a" />
 
 Use this when you already know the move, for example `E:\Music` is now `F:\Music`. Relinkbox reads the missing tracks and suggests the deepest folder that holds most of them. You set the old location (as Rekordbox stored it) and the new one. Every missing track under that old folder keeps its subfolders and filename, and the new path is only offered when that file is really there. The same review window opens before anything is saved.
 
+---
 ### Find music files Rekordbox doesn't have
+<img width="499" height="421" alt="image" src="https://github.com/user-attachments/assets/42905eb4-5ecd-4757-a738-244ed8a19e35" />
 
 Walks the same music folders and lists audio files with no library entry. Overlapping folders are counted once. These formats are included: MP3, FLAC, WAV, AIFF, M4A, AAC, MP4, ALAC, and OGG.
 
@@ -69,11 +76,15 @@ You can then:
 
 Existing files at the destination are left in place. Relinkbox does not add anything to the library itself.
 
+---
 ### Rekordbox is showing the wrong file name
+<img width="318" height="127" alt="image" src="https://github.com/user-attachments/assets/fcd91b86-a912-4f3d-8835-8bc345592051" />
 
 Rekordbox keeps its own file-name field, separate from the name of the file on disk. After a rename, the track can still display the old name even though the path is correct. This lists every local track where those two differ, shows the name in the library beside the name on disk, and updates the library name after you confirm. The file stays where it is.
 
+---
 ### Cue Manager
+<img width="1322" height="914" alt="image" src="https://github.com/user-attachments/assets/1d736387-58d8-411d-b669-60ce5b33543c" />
 
 Opens in its own window. It reads the local analysis files Rekordbox already uses on this PC (the beat grid and the waveform) and compares every cue to the nearest beat. USB exports are never touched, and the analysis files themselves are only read. Cue changes are written only to the database.
 

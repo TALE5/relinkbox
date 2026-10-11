@@ -95,7 +95,7 @@ You can then:
 - save a plain `.txt` list of paths
 - copy the files into another folder, either all together or with their subfolders kept
 
-Existing files at the destination are left in place. Relinkbox does not add anything to the library itself.
+Existing files at the destination are left in place. Relinkbox does not add new files to the library in itself.
 
 ---
 

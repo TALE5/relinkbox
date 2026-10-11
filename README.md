@@ -10,7 +10,7 @@ Rekordbox stores each track’s full file path in an encrypted database (`master
 
 Relinkbox finds the file again, or points a whole folder at its new location, and writes the new path back. It can also automatically bulk rename/update-track-names within rekordbox based on the actual artist - title; list music files the library has never seen, and snap cue points on 1 or 10000 that could've drifted from several reasons, like re-encoding from FLAC to mp3 (which i also did, hence this module)
 
-I made this with almost zero coding experience after deciding that manually relinking songs one by one, by the thousands, wasn't on the table. Pioneer has yet to build a solution that actually works for this, so I spent under a day making an actual functioning one and have kept improving it since.
+I begun this project with almost zero coding experience after deciding that manually relinking songs one by one, by the thousands, wasn't on the table. Pioneer has yet to build a solution that actually works for this, so I spent under a day making an actual functioning one and have kept improving it since.
 
 > **Heads-up:** Relinkbox was built with good vibes a lot of help from AI coding tools. Although I have decades of technical knowledge tinkering with software and hardware and employ common sense, it might contain a bug or two. I'll do my best to take care of whatever arises as soon as i can. My highest priority is the safety of your data, as I am heavily reliant on my own files and databases being intact. 
 

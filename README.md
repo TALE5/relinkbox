@@ -4,7 +4,13 @@
 
 ![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-FF910F.svg)
 
-A Windows desktop app that puts a Rekordbox 6 or 7 library back together after the music on disk has moved. 
+A Windows desktop app that puts a Rekordbox 6 or 7 library back together when built in tools fail.
+
+- Re-named a bunch of files?
+- Moved a bunch of files?
+- Re-encoded a bunch of files to MP3?
+- Have your Hot Cues drifted off grid?
+- Is rekordbox not able to find your files even though you still have them?
 
 Rekordbox stores each track’s full file path in an encrypted database (`master.db`). Rename a file (or thousands, like i did), move a folder, or change a drive letter, and that path is the only thing that breaks. Cue points, loops, beat grids, playlists, and history stay on the track, because they belong to the track, not to the path. Good luck auto-relocating with the built-in tool, and spending literal days manually selecting files one by one wasn't on my to-do list, so i created this instead :)
 

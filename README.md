@@ -22,7 +22,10 @@
 <p align="center">I begun this project with almost zero coding experience after deciding that manually relinking songs one by one, by the thousands, wasn't on the table. Pioneer has yet to build a solution that actually works for this, so I spent under a day making an actual functioning one and have kept improving it since.</p>
 
 <blockquote>
-<p align="center"><strong>Heads-up:</strong> Relinkbox was built with good vibes a lot of help from AI coding tools. Although I have decades of technical knowledge tinkering with software and hardware and employ common sense, it might contain a bug or two. I'll do my best to take care of whatever arises as soon as i can. My highest priority is the safety of your data, as I am heavily reliant on my own files and databases being intact.</p>
+<p align="center">Relinkbox was built with good vibes and help from AI coding tools. Although I have decades of technical knowledge tinkering with software and hardware and employ common sense, the software, being a hobby project and in active development, might not be as polished as it could (and will) be. I'll do my best to take care of whatever arises as soon as i can; your feedback is essential to help me understand how to improve it. 
+  <br>
+  <br>
+  No matter what, the software will <strong>never</strong> make a change that you can't revert, and will <strong>not</strong> break your library. My highest priority is the safety of our data; your library is treated as I treat my own.</p>
 </blockquote>
 
 <p align="center">It has tests, makes a backup before every change, and has been thoroughly tested on a real 14,000-track library, but it is a hobby project and comes with no warranty. Keep your backups.</p>

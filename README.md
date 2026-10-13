@@ -1,29 +1,37 @@
-![Relinkbox](relinkbox_brand_assets/png/relinkbox-wordmark-transparent.png)
+<p align="center">
+  <img src="relinkbox_brand_assets/png/relinkbox-wordmark-transparent-FIX.png" alt="Relinkbox" width="420">
+  <br>
+  <br>
+  <img src="https://img.shields.io/badge/License-GPL--3.0-FF910F.svg" alt="License: GPL-3.0">
+</p>
 
+<p align="center">A Windows desktop app that puts a Rekordbox 6 or 7 library back together when built in tools fail.</p>
 
+<p align="center">
+• Re-named a bunch of files?<br>
+• Moved a bunch of files?<br>
+• Re-encoded a bunch of files to MP3?<br>
+• Have your Hot Cues drifted off grid?<br>
+• Stuck manually relocating files for hours?
+</p>
 
-![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-FF910F.svg)
+<p align="center">Rekordbox stores each track’s full file path in an encrypted database (<code>master.db</code>). Rename a file (or thousands, like i did), move a folder, or change a drive letter, and that path is the only thing that breaks. Cue points, loops, beat grids, playlists, and history stay on the track, because they belong to the track, not to the path. Good luck auto-relocating with the built-in tool, and spending literal days manually selecting files one by one wasn't on my to-do list, so i created this instead :)</p>
 
-A Windows desktop app that puts a Rekordbox 6 or 7 library back together when built in tools fail.
+<p align="center">Relinkbox finds the file again, or points a whole folder at its new location, and writes the new path back. It can also automatically bulk rename/update-track-names within rekordbox based on the actual artist - title; list music files the library has never seen, and snap cue points on 1 or 10000 that could've drifted from several reasons, like re-encoding from FLAC to mp3 (which i also did, hence this module)</p>
 
-- Re-named a bunch of files?
-- Moved a bunch of files?
-- Re-encoded a bunch of files to MP3?
-- Have your Hot Cues drifted off grid?
-- Stuck manually relocating files for hours?
+<p align="center">I begun this project with almost zero coding experience after deciding that manually relinking songs one by one, by the thousands, wasn't on the table. Pioneer has yet to build a solution that actually works for this, so I spent under a day making an actual functioning one and have kept improving it since.</p>
 
-Rekordbox stores each track’s full file path in an encrypted database (`master.db`). Rename a file (or thousands, like i did), move a folder, or change a drive letter, and that path is the only thing that breaks. Cue points, loops, beat grids, playlists, and history stay on the track, because they belong to the track, not to the path. Good luck auto-relocating with the built-in tool, and spending literal days manually selecting files one by one wasn't on my to-do list, so i created this instead :)
+<blockquote>
+<p align="center"><strong>Heads-up:</strong> Relinkbox was built with good vibes a lot of help from AI coding tools. Although I have decades of technical knowledge tinkering with software and hardware and employ common sense, it might contain a bug or two. I'll do my best to take care of whatever arises as soon as i can. My highest priority is the safety of your data, as I am heavily reliant on my own files and databases being intact.</p>
+</blockquote>
 
-Relinkbox finds the file again, or points a whole folder at its new location, and writes the new path back. It can also automatically bulk rename/update-track-names within rekordbox based on the actual artist - title; list music files the library has never seen, and snap cue points on 1 or 10000 that could've drifted from several reasons, like re-encoding from FLAC to mp3 (which i also did, hence this module)
+<p align="center">It has tests, makes a backup before every change, and has been thoroughly tested on a real 14,000-track library, but it is a hobby project and comes with no warranty. Keep your backups.</p>
 
-I begun this project with almost zero coding experience after deciding that manually relinking songs one by one, by the thousands, wasn't on the table. Pioneer has yet to build a solution that actually works for this, so I spent under a day making an actual functioning one and have kept improving it since.
+<h3 align="center"><a href="https://youtu.be/tsQJ6_JFg4E"><strong>Watch the 2.5 minute demo</strong></a></h2>
 
-> **Heads-up:** Relinkbox was built with good vibes a lot of help from AI coding tools. Although I have decades of technical knowledge tinkering with software and hardware and employ common sense, it might contain a bug or two. I'll do my best to take care of whatever arises as soon as i can. My highest priority is the safety of your data, as I am heavily reliant on my own files and databases being intact. 
-
-It has tests, makes a backup before every change, and has been thoroughly tested on a real 14,000-track library, but it is a hobby project and comes with no warranty. Keep your backups.
-
-### **[Watch the 2.5 minute demo](https://youtu.be/tsQJ6_JFg4E)**
-[![Watch the 2.5 minute demo](https://img.youtube.com/vi/tsQJ6_JFg4E/hqdefault.jpg)](https://youtu.be/tsQJ6_JFg4E)
+<p align="center">
+  <a href="https://youtu.be/tsQJ6_JFg4E"><img src="https://img.youtube.com/vi/tsQJ6_JFg4E/hqdefault.jpg" alt="Watch the 2.5 minute demo" width="350"></a>
+</p>
 
 ## Download
 

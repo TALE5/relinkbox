@@ -36,6 +36,8 @@
   <a href="https://youtu.be/tsQJ6_JFg4E"><img src="https://img.youtube.com/vi/tsQJ6_JFg4E/hqdefault.jpg" alt="Watch the 2.5 minute demo" width="350"></a>
 </p>
 
+> **Test branch (`cue-grid-and-hot-cues`).** Cue Manager here can nudge the beat grid, edit hot cues, and remove a track from the library. That is not in the downloadable release. Read [TESTING.md](TESTING.md) before you point it at a library. The known issues are listed there on purpose, instead of being polished away first.
+
 ## Download
 
 Pick one from the [latest release](https://github.com/TALE5/relinkbox/releases/latest). You do not need Python or a terminal.
@@ -126,7 +128,9 @@ Rekordbox keeps its own file-name field, separate from the name of the file on d
 
 ![Cue Manager](docs/cue-manager.gif)
 
-Opens in its own window. It reads the local analysis files Rekordbox already uses on this PC (the beat grid and the waveform) and compares every cue to the nearest beat. USB exports are never touched, and the analysis files themselves are only read. Cue changes are written only to the database.
+Opens in its own window. It reads the local analysis files Rekordbox already uses on this PC (the beat grid and the waveform) and compares every cue to the nearest beat. USB exports are never touched.
+
+On this branch, edits stay on screen until **Apply**. That one save writes every staged change and makes a single backup. An orange dot marks a track that still has unsaved work. You can nudge the beat grid, snap the grid onto the cues or the cues onto the grid, set and delete hot cues, undo with Ctrl+Z (Ctrl+Y redoes), and remove a track from the library. The audio file is left on disk. Closing the window with edits still open asks you to save or discard them. What is still rough is in [TESTING.md](TESTING.md).
 
 The scan gives each track one of these verdicts:
 
@@ -142,7 +146,7 @@ The scan gives each track one of these verdicts:
 
 You can filter by verdict, search, and sort the list. Select a track to open it in the player: a whole-track strip, a zoomed waveform (Rekordbox’s 3-band waveform when a `.2EX` file exists), hot-cue pads A–H, memory cues, cover art when the file has it, and a volume control. Scroll to zoom, shift-drag to pan, drag to scrub, or click a cue to play from that point. The player can be collapsed.
 
-If the picture is unclear, **The cues are right** or **The grid is right** overrides the verdict before you snap. **Snap selected** moves the matching cues onto the beat, and moves a loop’s end by the same amount. A backup is made first. VBR MP3 cues that store a byte position are left alone. Cue Manager does not rewrite the beat grid.
+If the picture is unclear, **The cues are right** or **The grid is right** overrides the verdict before you snap. Those choices stay across scans on this computer. **Snap to grid** stages a move of the matching cues onto the beat, and moves a loop’s end by the same amount. **Snap to cues** stages a move of the beat grid so the beats land on those cues. Nothing is written until **Apply**. VBR MP3 cues that store a byte position are left alone.
 
 The rules behind a snap:
 
@@ -169,13 +173,15 @@ An analysis file is left unchanged, with a warning, when it contains a section R
 
 Cue snaps write the cue’s time (and the loop end, when there is one) in the cue table and in the matching hot-cue bank. Display-name fixes write only the name field.
 
+On this branch, **Apply** in Cue Manager can also shift the beat times in that track’s local `.DAT`, add or delete hot cues, and remove a track from the library. The audio file stays where it is. See [TESTING.md](TESTING.md).
+
 ## What it leaves alone
 
 - Tracks whose file is still where Rekordbox says it is
 - Streaming and cloud tracks
 - Files already in the library, when you are only looking for untracked music
 - Analysis files on USB exports
-- The beat grid, waveform, tags, playlists, and play history
+- The waveform, tags, and play history. The released app also leaves the beat grid alone. This branch can shift the local one. Playlists and history are left alone unless you remove the track from the library.
 - Cue points that do not share the offset being snapped, including VBR MP3 cues stored as a byte position
 
 

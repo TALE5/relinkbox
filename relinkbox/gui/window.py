@@ -219,7 +219,7 @@ class MainWindow(QMainWindow):
             cue_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
             cue_text.addWidget(cue_label)
         self.cues_button.setToolTip(
-            "Opens a separate window to find cue points that sit off the beat grid and snap them back."
+            "Opens a separate window to line up cue points and the beat grid, and to edit hot cues."
         )
         self.cues_button.setStyleSheet(
             "QPushButton {"

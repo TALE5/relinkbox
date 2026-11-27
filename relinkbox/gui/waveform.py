@@ -182,10 +182,12 @@ def cue_letter(cue):
     return label[:1] if label else "?"
 
 
-def _draw_badge(painter, x, color, text, y=3, size=BADGE):
+def _draw_badge(painter, x, color, text, y=3, size=BADGE, ink=None):
     box = QRect(x - size // 2, y, size, size)
     painter.fillRect(box, color)
-    painter.setPen(QColor(20, 20, 20) if color.lightness() > 150 else QColor("#e6e6ea"))
+    if ink is None:
+        ink = QColor(20, 20, 20) if color.lightness() > 150 else QColor("#e6e6ea")
+    painter.setPen(ink)
     font = QFont(painter.font())
     font.setBold(True)
     font.setPixelSize(9 if size < 15 else 11)
@@ -225,7 +227,13 @@ class TrackNavigator(QWidget):
         self.view_ms = view_ms
         self.update()
 
+    def set_cues(self, cues):
+        self.cues = cues or []
+        self.update()
+
     def set_playhead(self, ms):
+        if self._dragging:
+            return
         self.playhead_ms = ms
         self.update()
 
@@ -272,7 +280,8 @@ class TrackNavigator(QWidget):
         painter.setPen(QPen(QColor(255, 255, 255, 180), 1))
         painter.drawRect(x0, 0, max(x1 - x0, 3), h - 1)
         for cue in self.cues:
-            _draw_badge(painter, self._x_at(cue.in_ms), cue_color(cue), cue_letter(cue), y=1, size=12)
+            ink = QColor("#111111") if getattr(cue, "kind", 0) else None
+            _draw_badge(painter, self._x_at(cue.in_ms), cue_color(cue), cue_letter(cue), y=1, size=12, ink=ink)
         if self.playhead_ms is not None:
             painter.setPen(QPen(QColor(255, 255, 255), 1))
             painter.drawLine(self._x_at(self.playhead_ms), 0, self._x_at(self.playhead_ms), h)
@@ -280,6 +289,75 @@ class TrackNavigator(QWidget):
 
 _GRID_BEAT_PX = 22
 _GRID_MIN_PX = 12
+
+
+def cue_cell_span(beat_ms):
+    """Fixed window around a cue. Nudging the grid moves the lines and leaves the zoom alone."""
+    return max(float(beat_ms) * 2, 180.0)
+
+
+def _bar_arrow(painter, x, y, pointing_down=True):
+    """Small red marker on a bar line, sitting on the edge and pointing into the wave."""
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(226, 40, 40))
+    path = QPainterPath()
+    half = 4.5
+    depth = 7
+    if pointing_down:
+        path.moveTo(x - half, y)
+        path.lineTo(x + half, y)
+        path.lineTo(x, y + depth)
+    else:
+        path.moveTo(x - half, y)
+        path.lineTo(x + half, y)
+        path.lineTo(x, y - depth)
+    path.closeSubpath()
+    painter.drawPath(path)
+    painter.restore()
+
+
+def _bar_layout(beats):
+    """(beats per bar, index of the first downbeat)."""
+    origin = 0
+    for i, beat in enumerate(beats[:500]):
+        if beat == 1:
+            origin = i
+            break
+    gaps = []
+    previous = None
+    for i, beat in enumerate(beats[:500]):
+        if beat != 1:
+            continue
+        if previous is not None:
+            gaps.append(i - previous)
+            if len(gaps) >= 40:
+                break
+        previous = i
+    bar = 4
+    if gaps:
+        gaps.sort()
+        bar = max(1, gaps[len(gaps) // 2])
+    return bar, origin
+
+
+def grid_detail(beat_px, bar_beats):
+    """How to draw the grid at this zoom: (line step in beats, red marker every N bars).
+
+    Zoomed in, every beat is a line and every bar gets a marker. Zooming out keeps a
+    marker every 4, then 8, then 16 bars, with a lighter line on the steps between.
+    """
+    bar = max(int(bar_beats), 1)
+    bar_px = float(beat_px) * bar
+    if bar_px >= 64 and beat_px >= 14:
+        return 1, 1
+    if bar_px >= 32:
+        return bar, 1
+    for bars in (4, 8, 16):
+        if bar_px * bars >= 80:
+            return bar * max(1, bars // 4), bars
+    return bar * 4, 16
 
 
 def _grid_stride(beats, spacing_px):
@@ -324,6 +402,7 @@ class OverviewWaveform(QWidget):
     clicked = Signal(int)
     view_changed = Signal(int, int)
     scrubbed = Signal(int)
+    follow_audio = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -339,6 +418,7 @@ class OverviewWaveform(QWidget):
         self.start_ms = 0
         self._drag_x = None
         self._drag_start = 0
+        self._pan_locked = False
         self._press_x = None
         self._press_ms = None
         self._dragged = False
@@ -373,10 +453,31 @@ class OverviewWaveform(QWidget):
         self.update()
         self._emit_view()
 
+    def set_grid(self, grid):
+        """Replace the beat lines without resetting zoom or the playhead."""
+        self.grid = grid
+        self.update()
+
     def set_live(self, live):
         self._live = live
 
+    def set_cues(self, cues, proposed=None):
+        self.cues = cues or []
+        if proposed is not None:
+            self.proposed = proposed
+        self.update()
+
+    def holds_playhead(self):
+        if self._pan_locked:
+            return False
+        return bool(self._scrubbing or self._drag_x is not None)
+
+    def pan_locked(self):
+        return self._pan_locked
+
     def set_playhead(self, ms, follow=False):
+        if self.holds_playhead():
+            return
         self.playhead_ms = ms
         if follow and ms is not None and self._drag_x is None and self.zoom > 1.01:
             new_start = self._clamp_start(ms - self._view_ms() / 2)
@@ -454,6 +555,7 @@ class OverviewWaveform(QWidget):
         if event.button() == Qt.MiddleButton or event.modifiers() & Qt.ShiftModifier:
             self._drag_x = self._press_x
             self._drag_start = self.start_ms
+            self._pan_locked = False
             return
         if event.button() == Qt.LeftButton and self.duration_ms > 1:
             self._scrubbing = True
@@ -467,8 +569,15 @@ class OverviewWaveform(QWidget):
             self._dragged = True
         if self._drag_x is not None:
             dx = event.position().x() - self._drag_x
-            self.start_ms = self._clamp_start(self._drag_start - dx / max(self.width(), 1) * self._view_ms())
-            if self._live:
+            desired = self._drag_start - dx / max(self.width(), 1) * self._view_ms()
+            self.start_ms = self._clamp_start(desired)
+            locked = abs(self.start_ms - desired) > 0.5
+            if locked and not self._pan_locked:
+                self._pan_locked = True
+                self.follow_audio.emit()
+            elif not locked:
+                self._pan_locked = False
+            if self._live and not self._pan_locked:
                 ms = int(self.start_ms + self._view_ms() / 2)
                 self.playhead_ms = ms
                 if self._last_scrub_ms is None or abs(ms - self._last_scrub_ms) > 40:
@@ -494,12 +603,16 @@ class OverviewWaveform(QWidget):
             self.scrubbed.emit(ms)
         elif event.button() == Qt.LeftButton and not self._dragged and self._press_ms is not None:
             self.clicked.emit(self._press_ms)
+        was_locked = self._pan_locked
+        self._pan_locked = False
         self._drag_x = None
         self._press_x = None
         self._press_ms = None
         self._dragged = False
         self._scrubbing = False
         self._last_scrub_ms = None
+        if was_locked:
+            self.follow_audio.emit()
         self._emit_view()
 
     def _ensure_strip(self):
@@ -528,6 +641,7 @@ class OverviewWaveform(QWidget):
 
     def _paint_grid(self, painter, h):
         grid = self.grid
+        self._marker_bars = 0
         if grid is None or len(grid) == 0:
             return
         view = self._view_ms()
@@ -537,27 +651,28 @@ class OverviewWaveform(QWidget):
         spacing = w * grid.beat_length(self.start_ms + view / 2) / view
         times = grid.times
         beats = grid.beats
-        step, origin = _grid_stride(beats, spacing)
+        bar_beats, origin = _bar_layout(beats)
+        line_step, marker_bars = grid_detail(spacing, bar_beats)
+        self._marker_bars = marker_bars
+        marker_step = max(bar_beats * marker_bars, 1)
         i0 = bisect.bisect_left(times, self.start_ms)
         i1 = bisect.bisect_right(times, self.start_ms + view)
-        if step <= 1:
-            for i in range(i0, i1):
-                x = self._x_at(times[i])
-                if beats[i] == 1:
-                    painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
-                else:
-                    painter.setPen(QPen(QColor(255, 255, 255, 55), 1))
-                painter.drawLine(x, 0, x, h)
-            return
-        if i0 <= origin:
+        if line_step <= 1:
+            i = i0
+        elif i0 <= origin:
             i = origin
         else:
-            i = origin + ((i0 - origin + step - 1) // step) * step
-        painter.setPen(QPen(QColor(255, 255, 255, 120), 1))
-        while i < i1:
+            i = origin + ((i0 - origin + line_step - 1) // line_step) * line_step
+        light = QPen(QColor(255, 255, 255, 55), 1)
+        strong = QPen(QColor(255, 255, 255, 130), 1)
+        while i < i1 and i < len(times):
             x = self._x_at(times[i])
+            marked = (i - origin) % marker_step == 0
+            painter.setPen(strong if marked else light)
             painter.drawLine(x, 0, x, h)
-            i += step
+            if marked:
+                _bar_arrow(painter, x, 0)
+            i += line_step
 
     def paintEvent(self, _event):
         painter = QPainter(self)
@@ -573,13 +688,22 @@ class OverviewWaveform(QWidget):
         span = max(self._view_ms() / cover_ms * cover_w, 1)
         painter.drawPixmap(QRectF(self.rect()), strip, QRectF(x0, 0, span, cover_h))
         self._paint_grid(painter, h)
+        bars = getattr(self, "_marker_bars", 0)
+        if bars:
+            painter.setPen(QColor(226, 40, 40))
+            font = painter.font()
+            font.setPixelSize(11)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(8, 14, "1 bar" if bars == 1 else f"{bars} bars")
         for cue in self.cues:
             color = cue_color(cue)
             x = self._x_at(cue.in_ms)
             if 0 <= x <= w:
                 painter.setPen(QPen(color, 2))
                 painter.drawLine(x, BADGE + 4, x, h - 2)
-                _draw_badge(painter, x, color, cue_letter(cue))
+                ink = QColor("#111111") if getattr(cue, "kind", 0) else None
+                _draw_badge(painter, x, color, cue_letter(cue), ink=ink)
             snap = self.proposed.get(cue.id)
             if snap:
                 new_in = snap[0] if isinstance(snap, (tuple, list)) else snap
@@ -618,6 +742,10 @@ class CueOffsetRow(QWidget):
         self.setVisible(bool(hot))
         self.update()
 
+    def set_grid(self, grid):
+        self.grid = grid
+        self.update()
+
     def set_active(self, kind):
         self.active_kind = kind
         self.update()
@@ -627,11 +755,8 @@ class CueOffsetRow(QWidget):
             return cue.in_ms
         return int(self.grid.times[self.grid.nearest(cue.in_ms)])
 
-    def _span(self, delta, beat, cell_w):
-        if abs(delta) <= 2:
-            return max(beat * 0.9, 180)
-        span = abs(delta) * max(cell_w, 48) / 34
-        return max(span, abs(delta) + 60, 90)
+    def _span(self, beat):
+        return cue_cell_span(beat)
 
     def _baked(self, cue, start, span, width, height):
         key = (cue.id, int(start), int(span), width, height)
@@ -665,8 +790,8 @@ class CueOffsetRow(QWidget):
         nearest = self._nearest(cue)
         delta = cue.in_ms - nearest
         beat = self.grid.beat_length(cue.in_ms) if self.grid is not None and len(self.grid) else 500
-        span = self._span(delta, beat, w)
-        start = max(0, (cue.in_ms + nearest) / 2 - span / 2)
+        span = self._span(beat)
+        start = max(0.0, cue.in_ms - span / 2)
         wave_h = max(h - bar, 8)
         cell = QRectF(x, 0, w, h).adjusted(0.5, 0.5, -0.5, -0.5)
         painter.save()
@@ -691,6 +816,8 @@ class CueOffsetRow(QWidget):
                 else:
                     painter.setPen(QPen(QColor(180, 180, 180, 80), 1))
                 painter.drawLine(px, bar, px, h)
+                if beat_pos == 1:
+                    _bar_arrow(painter, px, bar)
         color = cue_color(cue)
         cue_x = int(x + (cue.in_ms - start) / span * w)
         painter.setPen(QPen(color, 2))
@@ -710,8 +837,7 @@ class CueOffsetRow(QWidget):
         painter.setPen(Qt.NoPen)
         painter.setBrush(color)
         painter.drawRect(gx, gy, box, box)
-        letter_ink = QColor(20, 20, 20) if color.lightness() > 150 else QColor("#e6e6ea")
-        painter.setPen(letter_ink)
+        painter.setPen(QColor("#111111"))
         painter.drawText(QRect(gx, gy, box, box), Qt.AlignCenter, cue_letter(cue))
         available = max(w - (gx - x) - box - 10, 0)
         shown = painter.fontMetrics().elidedText(text, Qt.ElideRight, available)

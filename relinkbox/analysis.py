@@ -1,7 +1,7 @@
 """Read beat grids and waveforms straight from Rekordbox analysis (ANLZ) files.
 
-Only the local files Rekordbox uses on this computer are read (share/PIONEER/USBANLZ),
-never exports on USB drives. Nothing here writes to them.
+Only the local files Rekordbox uses on this computer are used (share/PIONEER/USBANLZ),
+never exports on USB drives. The beat grid can be shifted in place. Nothing else is written.
 """
 
 import bisect
@@ -98,6 +98,132 @@ def read_beat_grid(dat_path):
         bpms=(entries["tempo"] / 100).tolist(),
         beats=entries["beat"].astype(int).tolist(),
     )
+
+
+class GridShiftError(ValueError):
+    """The beat grid cannot be moved by that amount."""
+
+
+def snapped_ms(grid, ms):
+    """The nearest beat to ms, in whole milliseconds. ms itself when there is no grid."""
+    if grid is None or len(grid) == 0:
+        return int(round(ms))
+    return int(round(grid.times[grid.nearest(ms)]))
+
+
+def shifted_grid(grid, delta_ms):
+    """A copy of the grid with every beat moved by delta_ms. Beats that would pass 0 are left out."""
+    if grid is None or not delta_ms:
+        return grid
+    delta = float(delta_ms)
+    times, bpms, beats = [], [], []
+    for time, bpm, beat in zip(grid.times, grid.bpms, grid.beats):
+        moved = time + delta
+        if moved < 0:
+            continue
+        if moved > 0xFFFFFFFF:
+            return grid
+        times.append(moved)
+        bpms.append(bpm)
+        beats.append(beat)
+    if not times:
+        return grid
+    return BeatGrid(times=times, bpms=bpms, beats=beats)
+
+
+def grid_shift_ok(grid, delta_ms):
+    """True when the shift keeps at least one beat, and none run past the end of the time field."""
+    if grid is None or len(grid) == 0 or not delta_ms:
+        return False
+    delta = int(round(delta_ms))
+    kept = 0
+    for time in grid.times:
+        moved = time + delta
+        if moved > 0xFFFFFFFF:
+            return False
+        if moved >= 0:
+            kept += 1
+    return kept > 0
+
+
+def _add_u32(data, offset, delta, allow_zero=False, clamp_low=False):
+    current = int.from_bytes(data[offset : offset + 4], "big")
+    if allow_zero and current == 0:
+        return
+    updated = current + delta
+    if updated < 0:
+        if not clamp_low:
+            raise GridShiftError(f"Moving the grid by {delta:+d} ms would put a beat outside the track.")
+        updated = 0
+    if updated > 0xFFFFFFFF:
+        raise GridShiftError(f"Moving the grid by {delta:+d} ms would put a beat outside the track.")
+    data[offset : offset + 4] = int(updated).to_bytes(4, "big")
+
+
+def _rewrite_pqtz(data, start, len_tag, count, delta):
+    """Shift PQTZ beat times. Beats that would pass 0 are removed and the file shrinks."""
+    entries_at = start + 24
+    kept = bytearray()
+    for i in range(count):
+        off = entries_at + i * 8
+        moved = int.from_bytes(data[off + 4 : off + 8], "big") + delta
+        if moved < 0:
+            continue
+        if moved > 0xFFFFFFFF:
+            raise GridShiftError(f"Moving the grid by {delta:+d} ms would put a beat outside the track.")
+        kept += data[off : off + 4] + int(moved).to_bytes(4, "big")
+    if not kept:
+        raise GridShiftError("Moving the grid that far would leave no beats.")
+    new_count = len(kept) // 8
+    if new_count == count:
+        data[entries_at : entries_at + count * 8] = kept
+        return data
+    removed = (count - new_count) * 8
+    extra = data[entries_at + count * 8 : start + len_tag]
+    new_len = 24 + len(kept) + len(extra)
+    head = bytearray(data[:start])
+    prefix = bytearray(data[start:entries_at])
+    prefix[8:12] = int(new_len).to_bytes(4, "big")
+    prefix[20:24] = int(new_count).to_bytes(4, "big")
+    body = head + prefix + kept + extra + data[start + len_tag :]
+    total = int.from_bytes(body[8:12], "big") - removed
+    body[8:12] = int(total).to_bytes(4, "big")
+    return body
+
+
+def shift_beat_grid(dat_path, delta_ms):
+    """Add delta_ms to every beat time in a local .DAT. Tempo and bar positions stay put.
+
+    A positive delta moves the grid later, which is what lines the beats up with late cues.
+    Beats that would move before the start of the track are dropped.
+    """
+    delta = int(round(delta_ms))
+    if delta == 0:
+        return 0
+    path = Path(dat_path)
+    data = bytearray(path.read_bytes())
+    found = _section(data, "PQTZ")
+    if not found:
+        raise GridShiftError("This track has no beat grid to move.")
+    start, _len_header, len_tag = found
+    count = int.from_bytes(data[start + 20 : start + 24], "big")
+    if count == 0 or 24 + count * 8 > len_tag:
+        raise GridShiftError("This track's beat grid could not be read.")
+    extended = _section(data, "PQT2")
+    if extended:
+        pstart, _header, plen = extended
+        if plen >= 40:
+            for offset in (28, 36):
+                _add_u32(data, pstart + offset, delta, allow_zero=True, clamp_low=True)
+    data = _rewrite_pqtz(data, start, len_tag, count, delta)
+    tmp = path.parent / (path.name + ".tmp")
+    try:
+        tmp.write_bytes(data)
+        tmp.replace(path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    return delta
 
 
 @dataclass
